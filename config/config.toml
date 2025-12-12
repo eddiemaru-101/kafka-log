@@ -11,6 +11,10 @@ high = { ratio = 0.3, log_frequency_multiplier = 1.5, watching_time_multiplier =
 medium = { ratio = 0.5, log_frequency_multiplier = 1.0, watching_time_multiplier = 1.0 }
 low = { ratio = 0.2, log_frequency_multiplier = 0.6, watching_time_multiplier = 0.7 }
 
+[database]
+mode = "sqlite"  # "sqlite" 또는 "mysql"
+sqlite_path = "./mock_db/ott_test.db"  # SQLite DB 파일 경로
+
 [contents]
 featured_content_ids = ["tv_12345", "movie_67890", "tv_98765"]
 featured_weight = 0.3

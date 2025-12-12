@@ -105,7 +105,7 @@ class LogSink:
             
             self.producer = KafkaProducer(
                 bootstrap_servers=self.kafka_brokers,
-                value_serializer=lambda v: v.encode('utf-8'),
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 acks='all',
                 retries=3,
                 compression_type='gzip'
@@ -192,8 +192,9 @@ class LogSink:
             return
         
         try:
-            json_str = log_event.model_dump_json(exclude_none=True)
-            self.producer.send(self.kafka_topic, value=json_str)
+            # Pydantic model을 dict로 변환 후 전송
+            log_dict = log_event.model_dump(exclude_none=True, mode='json')
+            self.producer.send(self.kafka_topic, value=log_dict)
         except Exception as e:
             print(f"⚠️ Kafka 전송 실패: {e}")
     
