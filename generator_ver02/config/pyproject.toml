@@ -1,0 +1,33 @@
+[project]
+name = "userflow-generator-v2"
+version = "2.0.0"
+description = "OTT User Log Generator with configurable settings"
+requires-python = ">=3.11"
+dependencies = [
+    "mysql-connector-python>=8.0.33",
+    "python-dotenv>=1.0.0",
+    "pytz>=2023.3",
+    "faker>=20.0.0",
+    "toml>=0.10.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_backend"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
