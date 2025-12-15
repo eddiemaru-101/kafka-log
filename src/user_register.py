@@ -2,7 +2,7 @@ import random
 import hashlib
 from datetime import datetime
 from typing import Dict
-
+import time
 from faker import Faker
 import pytz
 
@@ -127,7 +127,7 @@ class UserRegister:
         birth_date = self._generate_birth_date(signup_timestamp)
         
         # 이메일 생성
-        email = f"user_{random.randint(10000, 99999)}@ottservice.com"
+        email = f"user_{signup_timestamp.timestamp()}_{random.randint(1000, 9999)}@ottservice.com"
         
         user_data = {
             'email': email,

@@ -152,7 +152,12 @@ class LogDateGenerator:
         year, month = map(int, target_month.split('-'))
         _, days_in_month = calendar.monthrange(year, month)
         
-        # 초당 mps * 86400초(1일) * 일수
-        total_logs = mps * 86400 * days_in_month
+        # mps가 0이면 배치 모드: 활성 유저 기반 계산
+        if mps == 0:
+            # 활성 유저 1명당 하루 평균 10개 로그 생성
+            total_logs = active_user_count * 10 * days_in_month
+        else:
+            # 실시간 모드: MPS 기반 계산
+            total_logs = mps * 86400 * days_in_month
         
         return total_logs

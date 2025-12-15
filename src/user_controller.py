@@ -161,7 +161,7 @@ class UserController:
         # 콘텐츠 선택 (Featured 가중치 적용)
         contents = self.log_factory.select_contents()
         contents_id = contents["content_id"]
-        contents_type = ContentsType.TV if contents["type"] == "tv" else ContentsType.MOVIE
+        contents_type = ContentsType.TV if contents["content_type"] == "tv" else ContentsType.MOVIE
         
         # Episode ID (TV 시리즈만)
         episode_id = None

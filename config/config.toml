@@ -1,7 +1,7 @@
 [global]
 timezone = "Asia/Seoul"
 target_months = ["2025-01"]
-target_mps = 100
+target_mps = 0
 
 [user]
 new_user_ratio = 0.05

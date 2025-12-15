@@ -178,14 +178,15 @@ class DBClient:
         cursor = self._get_cursor(conn)
         
         ph = self._get_placeholder()
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         insert_sql = f"""
             INSERT INTO users (
                 email, password_hash, name, gender, birth_date, country, city,
                 signup_date, account_status, is_adult_verified, last_login_date,
-                device_last_used, push_opt_in
-            ) VALUES ({', '.join([ph] * 13)})
+                device_last_used, push_opt_in, created_at, updated_at
+            ) VALUES ({', '.join([ph] * 15)})
         """
-        
+
         values = (
             user_data['email'],
             user_data['password_hash'],
@@ -199,7 +200,9 @@ class DBClient:
             user_data['is_adult_verified'],
             user_data['last_login_date'],
             user_data['device_last_used'],
-            user_data['push_opt_in']
+            user_data['push_opt_in'],
+            now,
+            now
         )
         
         cursor.execute(insert_sql, values)
@@ -240,15 +243,16 @@ class DBClient:
         trial_used_flag = random.choices([0, 1], weights=[80, 20])[0]
         
         ph = self._get_placeholder()
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(f"""
             INSERT INTO user_subscriptions (
                 user_id, subscription_id, start_date, end_date,
                 status, auto_renew_flag, cancel_reserved_flag,
-                payment_method, trial_used_flag
-            ) VALUES ({', '.join([ph] * 9)});
+                payment_method, trial_used_flag, created_at, updated_at
+            ) VALUES ({', '.join([ph] * 11)});
         """, (
             user_id, subscription_id, start_date, end_date,
-            "active", 1, 0, payment_method, trial_used_flag
+            "active", 1, 0, payment_method, trial_used_flag, now, now
         ))
         
         conn.commit()

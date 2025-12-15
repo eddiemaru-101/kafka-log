@@ -33,18 +33,24 @@ def main():
     config_path = "config/config.toml"
     config = toml.load(config_path)
     print(f"\n✅ Config 로딩 완료: {config_path}")
+
+
+
     
     # ========== 2. 모듈 초기화 ==========
     print("\n" + "=" * 60)
     print("📦 모듈 초기화 중...")
     print("=" * 60 + "\n")
-    
+
     # 변경 후
     db_client = DBClient(config)
     log_factory = LogEventFactory(config, db_client.get_all_contents())
     log_sink = LogSink(config)
     date_generator = LogDateGenerator(config)
     user_register = UserRegister(config)
+
+
+
     
     # ========== 3. 활동 레벨 분포 ==========
     activity_level_ratios = {
@@ -58,17 +64,35 @@ def main():
     
     print(f"\n✅ 활동 레벨 분포: HIGH={activity_weights[0]}, MEDIUM={activity_weights[1]}, LOW={activity_weights[2]}")
     
+
+
+
+
+
     # ========== 4. 신규 유저 생성 비율 ==========
     new_user_ratio = config["user"]["new_user_ratio"]
     print(f"✅ 신규 유저 생성 비율: {new_user_ratio * 100}%")
     
+
+
+
+
+
     # ========== 5. MPS 설정 ==========
     target_mps = config["global"]["target_mps"]
     print(f"✅ Target MPS: {target_mps}")
+
+
+
+
     
     # MPS 제어용 (간단한 sleep 방식)
     # 실제로는 배치 단위로 처리하지만, 여기서는 개별 로그 기준
     sleep_interval = 1.0 / target_mps if target_mps > 0 else 0
+
+
+
+
     
     # ========== 6. 월별 로그 생성 ==========
     target_months = config["global"]["target_months"]
@@ -96,6 +120,8 @@ def main():
         log_count = 0
         start_time = time.time()
         
+
+
         # 타임스탬프별 로그 생성
         for timestamp in timestamp_generator:
             log_count += 1
@@ -120,7 +146,8 @@ def main():
                 
                 # 신규 유저를 캐시에 추가 (선택적, DB에서 다시 로딩하려면 _load_initial_data 호출)
                 # 여기서는 단순화를 위해 스킵
-                
+
+
             else:
                 # 기존 유저 선택
                 user = db_client.get_random_user()
@@ -151,6 +178,8 @@ def main():
                 if events:
                     log_sink.write_batch(events)
             
+
+            
             # MPS 제어 (sleep)
             if sleep_interval > 0:
                 time.sleep(sleep_interval)
@@ -161,12 +190,18 @@ def main():
                 progress = (log_count / total_logs) * 100
                 print(f"   진행: {log_count:,}/{total_logs:,} ({progress:.2f}%) | 경과 시간: {elapsed:.1f}초")
         
+
         # 월별 완료
         total_elapsed = time.time() - start_time
         print(f"\n✅ {month} 로그 생성 완료!")
         print(f"   총 로그: {log_count:,}개")
         print(f"   소요 시간: {total_elapsed:.1f}초")
-        print(f"   평균 처리 속도: {log_count / total_elapsed:.1f} logs/sec")
+        if total_elapsed > 0:
+            print(f"   평균 처리 속도: {log_count / total_elapsed:.1f} logs/sec")
+
+
+
+
     
     # ========== 7. 최종 flush 및 종료 ==========
     print("\n" + "=" * 60)
@@ -178,6 +213,8 @@ def main():
     print("\n" + "=" * 60)
     print("✅ 로그 생성기 종료")
     print("=" * 60)
+
+
 
 
 if __name__ == "__main__":
