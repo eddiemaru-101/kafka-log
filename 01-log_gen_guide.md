@@ -9,21 +9,33 @@
 - 한달치 데이터를 생성 - 사용자의 요일별, 시간대별 발생 비율 설정에 따른 로그 발생시간 결정
 
 1. 객체
-- UserController
-    - 유저 상태를 기반으로 로그 발생조건
-- LogEvents
-    - 로그의 내용 입력
+- UserEventContoller
+    - 유저 상태를 기반으로 어떤 로그를 발생시킬지 결정
+    - 로그 카테고리 및 타입 결정
+    - 결정된 로그 타입에 따라 유저의 상태값을 어떤값으로 업데이트할지 결정한다.
+- UserSelector
+    - config.toml의 user수 기반으로 로그생성에 사용할 유저를 선정한다.
+    - 유저 선정시 상태값을 부여한다.
+    - 로그 생성에 따라 UserEventController로 부터 받은 상태값으로 유저별 상태값을 업데이트한다.
+- LogContents
+    - 로그타입별 로그 내용 생성
     - DB데이터 - DBclient로 받음
     - 로그내용,비율 - config파일 기반으로 입력
     - 로그날짜 - LogDateGenerator를 통해 입력
-    - 저장 - LogSink를 통해 처리방식을 받아서 처리
 - DBClient
-    - 로그의 내용에 사용되는 콘텐츠, 유저정보를 RDS(mysql)에서 가져와서 전달하기
-- LogDateGenerator
-    - 로그발생시 사용되는 날짜 정보를 반환
+    - 유저생성시 필요한 유저 정보 호출
+    - 로그에 필요한 콘텐츠 정보 호출
+    - 로그타입에 따른 유저,콘텐츠,구독상품 구매 정보 업데이트
+- DateGenerator
+    - 로그발생 시간 정보를 반환
+    - config.toml의 생성모드가 batch일경우 설정파일에 입력된 월을 바탕으로 날짜 생성
+    - config.toml의 생성모드가 streaming일 경우 현재시간 반환
+    - config.toml의 생성모드가 batch일경우 한달치 로그가 생성됨
 - LogSink
     - 로그 최종 처리방식 결정
-    - S3전송, local 저장, aws MSK kafk로 전송
+    - config.toml의 생성모드가 batch일경우, config.toml의 sink모드 값에 따라 S3전송 또는 local 저장
+    - config.toml의 생성모드가 streaming일 경우 aws kinesis stream으로 전송
+
 
 1. 기타 설정
 - Config파일 - config.toml로 관리
@@ -215,12 +227,6 @@ event_type = `{category}-{type}`
 - 로그: `contents-stop`
 - 다음 상태: CONTENT_PAGE
 
-**6. IN_PAUSE 상태**
-
-**재생 재개**
-
-- 로그: `contents-resume`
-- 다음 상태: IN_PLAYING
 
 **시청 중단 + 로그아웃**
 
@@ -306,13 +312,12 @@ event_type = `{category}-{type}`
 |  |  | 콘텐츠 중지 | `stop` / 5 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
 |  |  | 콘텐츠 일시정지 | `pause` / 6 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
 |  |  | 콘텐츠 재시작 | `resume` / 7 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
-|  |  | ~~콘텐츠 재생 확인~~ | `~~playing~~` | ~~user_id, contents_id, contents_type, episode_id, progress_time, platform, timestamp~~ |
 |  |  | 콘텐츠 좋아요 | `like_on` / 8 | user_id, contents_id, contents_type, timestamp |
 |  |  | 콘텐츠 좋아요 취소 | `like_off` /9 | user_id, contents_id, contents_type, timestamp |
 | 리뷰 | `review` / 3 | 콘텐츠 리뷰 작성 | `review` / 10 | user_id, contents_id, rating, review_detail, timestamp |
 | 구독 | `subscription`  / 4 | 유료 구독 결제 | `start` / 4 | user_id, subscription_id, timestamp |
 |  |  | 유료 구독 해지 | `stop` / 5 | user_id, subscription_id, timestamp |
-|  |  | ~~유료 구독 변경~~ | `~~change~~` | ~~user_id, subscription_id, timestamp~~ |
+
 | 회원 | `register` / 5 | 회원 가입 | `in` / 1 | user_id, traffic_source, timestamp |
 |  |  | 회원 탈퇴 | `out` / 2 | user_id, reason_type, reason_detail, timestamp |
 | 검색 | `search` / 6 | 콘텐츠 검색 | `search` / 11 | user_id, term, timestamp |
@@ -329,7 +334,7 @@ event_type = `{category}-{type}`
 | contents_type | 콘텐츠 유형 | TINYINT | 1 | • 1: series - 시리즈 물• 2: single - 단편 |
 | episode_id | 에피소드 ID | VARCHAR(50)NULLABLE | episode_1234 | *콘텐츠 테이블 참고 |
 | progress_time | 콘텐츠 시청 시간 | VARCHAR(50) | mm:ss | - |
-| **rating** | 리뷰 평점 | FLOAT | 3.5 | 평점 범위 (0~5, 0.5 단위)0.5 단위 외의 숫자 들어올 경우 round |
+| rating | 리뷰 평점 | FLOAT | 3.5 | 평점 범위 (0~5, 0.5 단위)0.5 단위 외의 숫자 들어올 경우 round |
 | review_detail | 리뷰 내용 | VARCHAR(255), NULLABLE | “재밌어요” | - |
 | subscription_id | 구독 상품 ID | VARCHAR(50) | subs_1 | *구독 테이블 참고 |
 | traffic_source | 유입 경로 | TINYINTNULLABLE | 1 | • 1: search - 검색• 2: social - SNS• 3: ad_searc - 포털 사이트 광고• 4: ad_social - SNS 광고• 5: referral - 추천• 6: misc - 기타 |
@@ -499,12 +504,3 @@ user_id|email                      |password_hash                               
     ```
     
 
-### **DB 설정 정보 (.env 파일로 관리 예정)**
-
-```
-DB_HOST=ott-project-db.c5coqywgszdi.ap-northeast-2.rds.amazonaws.com
-DB_USER=admin
-DB_PASSWORD=sesac123!
-DB_NAME=ott_service
-DB_PORT=3306
-```

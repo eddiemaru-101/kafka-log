@@ -1,95 +1,50 @@
+# ============================================================
+# [global] 
+# ============================================================
 [global]
 timezone = "Asia/Seoul"
+generation_mode = "batch"  # "batch" or "streaming"
 target_months = ["2025-01"]
-target_mps = 0
+target_mps = 100  # 0이면 제한 없음
 
+
+# ============================================================
+# [date_generator] - LogDateGenerator 객체에서 사용
+# ============================================================
+[date_generator]
+dau = 1200
+logs_per_user_per_day = 100
+
+# 요일별 로그 발생 비율 (합계 = 1.0)
+[date_generator.day_of_week_ratio]
+monday = 0.10
+tuesday = 0.12
+wednesday = 0.13
+thursday = 0.12
+friday = 0.20
+saturday = 0.15
+sunday = 0.18
+
+# 시간대별 로그 발생 비율 (합계 = 1.0)
+[date_generator.hour_distribution]
+"0-6" = 0.05      # 새벽 (5%)
+"6-9" = 0.10      # 출근 시간 (10%)
+"9-12" = 0.15     # 오전 (15%)
+"12-14" = 0.10    # 점심 시간 (10%)
+"14-18" = 0.10    # 오후 (10%)
+"18-22" = 0.35    # 저녁 시간대 - 피크 타임 (35%)
+"22-24" = 0.15    # 밤 (15%)
+
+
+# ============================================================
+# [user] - UserSelector 객체에서 사용
+# ============================================================
 [user]
-new_user_ratio = 0.05
+# 신규 유저 생성 비율
+new_user_ratio = 0.05  # 5%
 
-[user.activity_levels]
-high = { ratio = 0.3, log_frequency_multiplier = 1.5, watching_time_multiplier = 1.3 }
-medium = { ratio = 0.5, log_frequency_multiplier = 1.0, watching_time_multiplier = 1.0 }
-low = { ratio = 0.2, log_frequency_multiplier = 0.6, watching_time_multiplier = 0.7 }
-
-[database]
-mode = "sqlite"  # "sqlite" 또는 "mysql"
-sqlite_path = "./mock_db/ott_test.db"  # SQLite DB 파일 경로
-
-[contents]
-featured_content_ids = ["tv_12345", "movie_67890", "tv_98765"]
-featured_weight = 0.3
-
-search_terms = [
-    "해리포터", "어벤져스", "겨울왕국", "스파이더맨", "라라랜드",
-    "부산행", "파친코", "오징어게임", "수리남"
-]
-
-review_sentences = [
-    "재밌어요", "지루했어요", "다시 보고 싶어요", "연기가 좋았어요",
-    "스토리가 약했어요", "영상미가 뛰어나요"
-]
-
-inquiry_sentences = [
-    "25일 쓴 이용권 환불 가능?", "결제가 중복된 것 같아요",
-    "콘텐츠 재생이 안됩니다", "구독 변경은 어떻게 하나요?"
-]
-
-[log_types]
-access = ["in", "out"]
-contents = ["click", "start", "stop", "pause", "resume", "playing", "like_on", "like_off"]
-review = ["review"]
-subscription = ["start", "stop"]
-register = ["in", "out"]
-search = ["search"]
-support = ["inquiry"]
-
-[state_probabilities.subscribed]
-access_out = 0.10
-contents_click = 0.60
-subscription_stop = 0.08
-register_out = 0.01
-search = 0.20
-support_inquiry = 0.01
-
-[state_probabilities.non_subscribed]
-subscription_start = 0.30
-contents_click = 0.40
-search = 0.20
-register_out = 0.09
-support_inquiry = 0.01
-
-[date_generation]
-[date_generation.day_of_week_ratio]
-monday = 0.13
-tuesday = 0.14
-wednesday = 0.14
-thursday = 0.14
-friday = 0.15
-saturday = 0.16
-sunday = 0.14
-
-[date_generation.hour_distribution]
-"0-6" = 0.05
-"6-9" = 0.10
-"9-12" = 0.15
-"12-14" = 0.10
-"14-18" = 0.10
-"18-22" = 0.35
-"22-24" = 0.15
-
-[log_sink]
-# 출력 모드: "local", "s3", "kafka"
-output_mode = "local"
-
-# Local 모드 설정
-local_base_path = "./logs"
-batch_size = 100
-topic_name = "user-logs"
-
-# S3 모드 설정
-s3_bucket = "my-ott-logs"
-s3_prefix = "logs"
-
-# Kafka 모드 설정
-kafka_topic = "user-logs"
-kafka_brokers = ["localhost:9092"]
+# 활성도 등급별 비율 (합계 = 1.0)
+[user.activity_ratio]
+high = 0.2     # 20% - 고활성 유저
+medium = 0.5   # 50% - 중활성 유저
+low = 0.3      # 30% - 저활성 유저
