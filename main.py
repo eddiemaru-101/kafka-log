@@ -5,7 +5,7 @@ from datetime import datetime
 from src.db_client import DBClient
 from src.date_generator import LogDateGenerator
 from src.user_selector import UserSelector
-from src.user_event_controller import UserEventController
+from src.user_controller import UserEventController
 from src.log_contents import LogContents
 from src.log_sink import LogSink
 
@@ -139,16 +139,20 @@ def run_batch_mode(
         # Stage 1: 타임스탬프 생성
         timestamps = date_generator.generate_timestamps(month, total_logs)
 
-        # Stage 2-5: 각 타임스탬프 처리
+        # Stage 2-5: 각 타임스탬프 처리(1개월기준의 타임스템프가 시간 순서대로 송출)
         for timestamp in timestamps:
             # Stage 2: 유저 선택 (신규/기존 + 현재 상태)
             user, current_state = user_selector.select_user(timestamp)
 
             # Stage 3: 상태 기반 다음 액션 결정 + 상태 전이
-            event_type, next_state = user_event_controller.decide_next_event(
-                user=user,
-                current_state=current_state
+            event_type, next_state, additional_data = user_event_controller.select_event(
+                user_id=user.user_id,
+                is_subscribed=user.is_subscribed,
+                current_state=current_state,
+                activity_level=user.activity_level
             )
+
+
 
             # Stage 4: 로그 내용 생성 (DB 조회 포함)
             log_event = log_contents.generate(
@@ -226,10 +230,12 @@ def run_streaming_mode(
             # Stage 2: 유저 선택
             user, current_state = user_selector.select_user(timestamp)
 
-            # Stage 3: 상태 기반 다음 액션 결정
-            event_type, next_state = user_event_controller.decide_next_event(
-                user=user,
-                current_state=current_state
+            # Stage 3: 상태 기반 다음 액션 결정 + 상태 전이
+            event_type, next_state, additional_data = user_event_controller.select_event(
+                user_id=user.user_id,
+                is_subscribed=user.is_subscribed,
+                current_state=current_state,
+                activity_level=user.activity_level
             )
 
             # Stage 4: 로그 내용 생성

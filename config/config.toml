@@ -41,10 +41,157 @@ sunday = 0.18
 # ============================================================
 [user]
 # 신규 유저 생성 비율
-new_user_ratio = 0.05  # 5%
+new_user_ratio = 0.02  # 2%
 
-# 활성도 등급별 비율 (합계 = 1.0)
-[user.activity_ratio]
-high = 0.2     # 20% - 고활성 유저
-medium = 0.5   # 50% - 중활성 유저
-low = 0.3      # 30% - 저활성 유저
+# ============================================================
+# [user_activity] - 유저 활성도 등급 설정
+# ============================================================
+[user_activity]
+# 활성도 등급별 유저 비율 (합계 = 1.0)
+high_ratio = 0.20    # 상위 활성 유저 20%
+medium_ratio = 0.50  # 중간 활성 유저 50%
+low_ratio = 0.30     # 하위 활성 유저 30%
+
+# 활성도 등급별 평균 시청시간 (분 단위)
+[user_activity.watch_time]
+high_avg_minutes = 45      # 상위 활성 유저 평균 45분
+medium_avg_minutes = 25    # 중간 활성 유저 평균 25분
+low_avg_minutes = 10       # 하위 활성 유저 평균 10분
+
+# 시청시간 noise 범위 (분 단위, ±)
+high_noise = 10      # ±10분
+medium_noise = 8     # ±8분
+low_noise = 5        # ±5분
+
+# ============================================================
+# [user_event_transitions] - UserEventController 객체에서 사용
+# ============================================================
+# 유저 상태별 이벤트 발생 확률 설정
+# 각 상태에서 발생 가능한 이벤트와 확률 정의 (각 섹션의 합계 = 1.0)
+
+[user_event_transitions.MAIN_PAGE]
+# MAIN_PAGE 상태: 메인 페이지에서 구독자가 할 수 있는 행동
+[user_event_transitions.MAIN_PAGE.subscribed]
+"access-out" = 0.01              # 로그아웃
+"contents-click" = 0.50          # 콘텐츠 클릭
+"subscription-stop" = 0.03       # 구독 해지
+"register-out" = 0.005            # 회원 탈퇴
+"search-search" = 0.25           # 검색
+"support-inquiry" = 0.05         # 고객 문의
+
+# MAIN_PAGE 상태: 메인 페이지에서 비구독자가 할 수 있는 행동
+[user_event_transitions.MAIN_PAGE.not_subscribed]
+"subscription-start" = 0.30      # 구독 시작
+"contents-click" = 0.40          # 콘텐츠 클릭
+"search-search" = 0.20           # 검색
+"register-out" = 0.02            # 회원 탈퇴
+"support-inquiry" = 0.08         # 고객 문의
+
+[user_event_transitions.CONTENT_PAGE]
+# CONTENT_PAGE 상태: 콘텐츠 상세 페이지에서 구독자가 할 수 있는 행동
+[user_event_transitions.CONTENT_PAGE.subscribed]
+"contents-start" = 0.60          # 재생 시작
+"contents-like_on" = 0.15        # 좋아요 등록
+"contents-like_off" = 0.05       # 좋아요 취소
+"review-review" = 0.10           # 리뷰 작성
+"back" = 0.10                    # 뒤로가기 (로그 없음)
+
+# CONTENT_PAGE 상태: 콘텐츠 상세 페이지에서 비구독자가 할 수 있는 행동
+[user_event_transitions.CONTENT_PAGE.not_subscribed]
+"contents-like_on" = 0.30        # 좋아요 등록
+"contents-like_off" = 0.10       # 좋아요 취소
+"back" = 0.60                    # 뒤로가기 (로그 없음)
+
+# IN_PLAYING 상태: 콘텐츠 재생 중 할 수 있는 행동
+[user_event_transitions.IN_PLAYING]
+"contents-stop_and_out" = 0.10   # 시청 중단 후 로그아웃 (2개 로그 발생)
+"contents-pause" = 0.20          # 일시정지
+"continue" = 0.50                # 계속 재생 (로그 없음)
+"contents-stop" = 0.20           # 재생 종료
+
+# IN_PAUSE 상태: 일시정지 중 할 수 있는 행동
+[user_event_transitions.IN_PAUSE]
+"contents-resume" = 0.40         # 재시작
+"contents-stop_and_out" = 0.10   # 시청 중단 후 로그아웃 (2개 로그 발생)
+"contents-stop" = 0.50           # 재생 종료
+
+
+# ============================================================
+# [log_contents] - LogContents 객체에서 사용
+# ============================================================
+[log_contents]
+# 플랫폼별 접속 비율
+platform_ratio = { android = 0.35, ios = 0.30, pc = 0.25, tv = 0.10 }
+
+# 리뷰 작성 시 내용 작성 확률
+review_detail_ratio = 0.70  # 70% 확률로 리뷰 내용 작성
+
+# 탈퇴 시 상세 이유 작성 확률
+register_out_detail_ratio = 0.50  # 50% 확률로 탈퇴 사유 작성
+
+# 검색어 후보 목록
+search_terms = [
+    "해리포터",
+    "어벤져스",
+    "기생충",
+    "오징어게임",
+    "스파이더맨",
+    "겨울왕국",
+    "타이타닉",
+    "인터스텔라",
+    "기묘한 이야기",
+    "더 글로리"
+]
+
+# 리뷰 내용 후보
+review_samples = [
+    "재밌어요",
+    "별로예요",
+    "최고입니다",
+    "시간 아까워요",
+    "강추합니다",
+    "다시 보고 싶어요",
+    "기대 이하",
+    "예상보다 좋네요"
+]
+
+# 탈퇴 사유 후보
+register_out_reasons = [
+    "콘텐츠가 부족해요",
+    "너무 비싸요",
+    "더 이상 사용하지 않아요",
+    "타 서비스로 이동",
+    "기타 사유"
+]
+
+# 문의 내용 후보
+inquiry_samples = [
+    "콘텐츠가 재생되지 않아요",
+    "25일 쓴 이용권 환불 가능?",
+    "구독 해지 방법 문의",
+    "비밀번호 변경 방법",
+    "결제 오류 문의",
+    "화질이 안좋아요",
+    "자막이 안보여요"
+]
+
+
+# ============================================================
+# [log_sink] - LogSink 객체에서 사용
+# ============================================================
+[log_sink]
+# Sink 타입: "local", "s3", "kafka"
+sink_type = "local"
+
+# 로컬 저장 설정
+output_dir = "./output"
+topic = "user-logs"
+partition = 0
+
+# S3 저장 설정 (sink_type = "s3"일 때 사용)
+s3_bucket = "sesac-l1"
+s3_prefix = "raw-userlog"
+
+# Kafka 설정 (sink_type = "kafka"일 때 사용)
+kafka_bootstrap_servers = "localhost:9092"
+kafka_topic = "user-logs"

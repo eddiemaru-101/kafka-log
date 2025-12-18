@@ -81,7 +81,7 @@ class DBClient:
     
     # ========== 유저 관련 메서드 ==========
     
-    def create_new_user(self) -> int:
+    def create_new_user(self, signup_date: Optional[date] = None) -> int:
         """
         신규 유저 생성 (DB INSERT)
         
@@ -93,7 +93,7 @@ class DBClient:
             
             # 랜덤 데이터 생성
             random_suffix = ''.join(random.choices(string.digits, k=6))
-            email = f"user_{random_suffix}@ottservice.com"
+            email = f"G_user_{random_suffix}@ottservice.com"  # G_ 접두사 추가
             password_hash = ''.join(random.choices(string.hexdigits.lower(), k=64))
             
             names = ["김민준", "이서윤", "박지호", "최수빈", "정예은", "강도윤", "조시우", "윤하은"]
@@ -105,7 +105,8 @@ class DBClient:
             # 생년월일: 1970~2005년생
             birth_date = date(random.randint(1970, 2005), random.randint(1, 12), random.randint(1, 28))
             city = random.choice(cities)
-            signup_date = date.today()
+            if signup_date is None:
+                signup_date = date.today()
             
             query = """
                 INSERT INTO users (
@@ -172,7 +173,10 @@ class DBClient:
             users = cursor.fetchall()
             cursor.close()
             
-            return users
+            return users 
+            #[{'user_id': 10231, 'is_subscribed': 1}, 
+            # {'user_id': 48752, 'is_subscribed': 0}, 
+            # {'user_id': 33109, 'is_subscribed': 1}]
     
     
     def update_user_subscription(self, user_id: int, is_subscribed: bool):

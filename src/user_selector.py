@@ -1,28 +1,18 @@
 import random
 from datetime import datetime, date
 from typing import Tuple, Optional, List
-from enum import Enum
-
-
-class UserState(Enum):
-    """
-    유저 상태 (가이드 문서 기반)
-    """
-    MAIN_PAGE = "MAIN_PAGE"          # 메인 페이지
-    CONTENT_PAGE = "CONTENT_PAGE"    # 콘텐츠 상세 페이지
-    IN_START = "IN_START"            # 재생 시작 직후
-    IN_PLAYING = "IN_PLAYING"        # 재생 중
-    IN_PAUSE = "IN_PAUSE"            # 일시정지
-    USER_OUT = "USER_OUT"            # 로그아웃/세션 종료
+from schemas.enum import UserState, ActivityLevel
+from db_client import DBClient
 
 
 class User:
     """
     유저 객체
-
+    
     책임:
     - 유저 정보 저장
     - 현재 상태 관리
+    - 활성도 등급 관리
     """
     def __init__(
         self,
@@ -30,15 +20,19 @@ class User:
         is_subscribed: bool,
         current_state: UserState = UserState.MAIN_PAGE,
         current_content_id: Optional[str] = None,
-        current_episode_id: Optional[str] = None
+        current_episode_id: Optional[str] = None,
+        activity_level: Optional[ActivityLevel] = None
     ):
         self.user_id = user_id
         self.is_subscribed = is_subscribed
         self.current_state = current_state
-
-        # 현재 시청 중인 콘텐츠 정보 (IN_START, IN_PLAYING, IN_PAUSE 상태에서 사용)
+        
+        # 현재 시청 중인 콘텐츠 정보
         self.current_content_id = current_content_id
         self.current_episode_id = current_episode_id
+        
+        # 활성도 등급 (추가)
+        self.activity_level = activity_level
 
 
 class UserSelector:
@@ -69,7 +63,7 @@ class UserSelector:
         self.current_date: Optional[date] = None
 
         # 신규 유저 생성 비율 (config에서 읽거나 기본값: 5%)
-        self.new_user_ratio = config.get("user", {}).get("new_user_ratio", 0.05)
+        self.new_user_ratio = config.get("user", {}).get("new_user_ratio", 0.03)
 
         print(f"✅ UserSelector 초기화 완료")
         print(f"   DAU: {self.dau}")
@@ -93,10 +87,10 @@ class UserSelector:
            - 신규 유저: DB에 생성 + MAIN_PAGE 상태로 시작
            - 기존 유저: daily_users에서 선택 + 현재 상태 반환
         """
-        target_date = timestamp.date()
+        target_date = timestamp.date()  # 오늘날짜 = target_date로 선언(2025-12-15)
 
 
-        # 날짜가 바뀌면 daily_users 재설정
+        # 초기 오늘 날짜와 다르므로 daily_users 첫 생성 + 날짜가 바뀌면 daily_users 재설정
         if self.current_date != target_date:
             self._load_daily_users(target_date)
             self.current_date = target_date
@@ -104,16 +98,19 @@ class UserSelector:
         # 신규 유저 생성 여부 결정
         if random.random() < self.new_user_ratio:
             # 신규 유저 생성
-            user = self._create_new_user()
+            user = self._create_new_user(signup_date=target_date)
             return user, UserState.MAIN_PAGE
 
-        else:
-            # daily_users 풀에서 랜덤 선택
+        else:  # daily_users 풀에서 랜덤 선택
+
+
+            #DB에 user가 비어있는 경우, self.daily_users가 비어져있을 경우
             if not self.daily_users:
                 # daily_users가 비어있으면 신규 생성
-                user = self._create_new_user()
+                user = self._create_new_user(signup_date=target_date)
                 return user, UserState.MAIN_PAGE
-
+            
+            # 여기서 daily_users 풀에서 랜덤 선택
             user_id = random.choice(list(self.daily_users.keys()))
             user = self.daily_users[user_id]
             return user, user.current_state
@@ -158,6 +155,9 @@ class UserSelector:
 
         # DB에서 DAU만큼 랜덤 유저 가져오기
         users_data = self.db_client.get_random_users(limit=self.dau)
+        # [ {'user_id': 10231, 'is_subscribed': 1}, 
+        #   {'user_id': 48752, 'is_subscribed': 0}, 
+        #   {'user_id': 33109, 'is_subscribed': 1}...  ]
 
         if not users_data:
             print(f"⚠️  DB에 유저가 없습니다. 신규 유저를 생성합니다.")
@@ -168,31 +168,44 @@ class UserSelector:
             user = User(
                 user_id=user_data["user_id"],
                 is_subscribed=user_data["is_subscribed"],
-                current_state=UserState.MAIN_PAGE  # 초기 진입 시 MAIN_PAGE
+                current_state=UserState.MAIN_PAGE,
+                activity_level=self._assign_activity_level()  # 추가
             )
             self.daily_users[user.user_id] = user
 
         print(f"✅ {len(self.daily_users)}명의 유저 로드 완료")
 
 
-    def _create_new_user(self) -> User:
-        """
-        신규 유저 생성 (DB에 INSERT)
 
-        Returns:
-            새로 생성된 User 객체
-        """
-        # DB에 신규 유저 생성 (register-in 로그 발생 전에 먼저 생성)
-        user_id = self.db_client.create_new_user()
-
-        # User 객체 생성
+    def _create_new_user(self, signup_date: Optional[date] = None) -> User:
+        """신규 유저 생성 (DB에 INSERT)"""
+        user_id = self.db_client.create_new_user(signup_date=signup_date)
+        
         user = User(
             user_id=user_id,
-            is_subscribed=False,  # 신규 유저는 비구독자
-            current_state=UserState.MAIN_PAGE
+            is_subscribed=False,
+            current_state=UserState.MAIN_PAGE,
+            activity_level=self._assign_activity_level()  # 추가
         )
-
-        # daily_users 풀에 추가
+        
         self.daily_users[user_id] = user
-
         return user
+    
+
+    
+    def _assign_activity_level(self) -> ActivityLevel:
+        """
+        활성도 등급 할당 (확률 기반)
+
+        Returns:
+            ActivityLevel enum
+        """
+        activity_config = self.config.get("user_activity", {})
+        high_ratio = activity_config.get("high_ratio", 0.20)
+        medium_ratio = activity_config.get("medium_ratio", 0.50)
+        low_ratio = activity_config.get("low_ratio", 0.30)
+        
+        levels = [ActivityLevel.HIGH, ActivityLevel.MEDIUM, ActivityLevel.LOW]
+        weights = [high_ratio, medium_ratio, low_ratio]
+        
+        return random.choices(levels, weights=weights)[0]
