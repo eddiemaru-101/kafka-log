@@ -4,6 +4,8 @@ import time
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
+import boto3
+from botocore.exceptions import ClientError
 
 
 class LogSink:
@@ -11,7 +13,7 @@ class LogSink:
     로그 최종 처리 클래스
 
     책임:
-    - 로그 출력 방식 결정 (로컬/S3/Kafka)
+    - 로그 출력 방식 결정 (로컬/S3/Kinesis)
     - MSK S3 Sink Connector와 동일한 폴더 구조/파일명 생성
     - MPS(Messages Per Second) 제어
     """
@@ -37,7 +39,7 @@ class LogSink:
         # LogSink 전용 설정
         sink_config = config.get("log_sink", {})
 
-        self.sink_type = sink_config.get("sink_type", "local")  # local, s3, kafka
+        self.sink_type = sink_config.get("sink_type", "local")  # local, s3, kinesis
 
         # 로컬 저장 설정
         self.output_dir = sink_config.get("output_dir", "./output")
@@ -48,9 +50,14 @@ class LogSink:
         self.s3_bucket = sink_config.get("s3_bucket", "sesac-l1")
         self.s3_prefix = sink_config.get("s3_prefix", "raw-userlog")
 
-        # Kafka 설정
-        self.kafka_bootstrap_servers = sink_config.get("kafka_bootstrap_servers", "localhost:9092")
-        self.kafka_topic = sink_config.get("kafka_topic", "user-logs")
+        # Kinesis 설정
+        self.kinesis_stream_name = sink_config.get("kinesis_stream_name", "user-logs-stream")
+        self.kinesis_region = sink_config.get("kinesis_region", "ap-northeast-2")
+
+        # Kinesis client 초기화 (kinesis 모드일 때만)
+        self.kinesis_client = None
+        if self.sink_type == "kinesis":
+            self.kinesis_client = boto3.client('kinesis', region_name=self.kinesis_region)
 
         # 오프셋 카운터 (파일명용)
         self.offset = 0
@@ -69,9 +76,9 @@ class LogSink:
         elif self.sink_type == "s3":
             print(f"   S3 Bucket: {self.s3_bucket}")
             print(f"   S3 Prefix: {self.s3_prefix}")
-        elif self.sink_type == "kafka":
-            print(f"   Kafka Servers: {self.kafka_bootstrap_servers}")
-            print(f"   Kafka Topic: {self.kafka_topic}")
+        elif self.sink_type == "kinesis":
+            print(f"   Kinesis Stream: {self.kinesis_stream_name}")
+            print(f"   Kinesis Region: {self.kinesis_region}")
 
 
     def write(self, log_event: Dict[str, Any]) -> None:
@@ -89,8 +96,8 @@ class LogSink:
             self._write_to_local(log_event)
         elif self.sink_type == "s3":
             self._write_to_s3(log_event)
-        elif self.sink_type == "kafka":
-            self._write_to_kafka(log_event)
+        elif self.sink_type == "kinesis":
+            self._write_to_kinesis(log_event)
 
         # MPS 제어
         if self.interval > 0:
@@ -152,16 +159,38 @@ class LogSink:
         # s3_client.upload_file(local_file, bucket, key)
 
 
-    def _write_to_kafka(self, log_event: Dict[str, Any]) -> None:
+    def _write_to_kinesis(self, log_event: Dict[str, Any]) -> None:
         """
-        Kafka로 전송 (향후 구현)
+        Kinesis Data Streams로 전송
 
-        TODO: kafka-python 또는 confluent-kafka 사용
+        Args:
+            log_event: 로그 딕셔너리
         """
-        # TODO: Kafka Producer 구현
-        # from kafka import KafkaProducer
-        # producer.send(topic, value=json.dumps(log_event))
-        pass
+        if self.kinesis_client is None:
+            print("❌ Kinesis client가 초기화되지 않았습니다.")
+            return
+
+        try:
+            # user_id를 partition key로 사용 (같은 유저의 로그는 같은 샤드로)
+            partition_key = str(log_event.get("user_id", "default"))
+
+            # JSON을 바이트로 변환
+            data = json.dumps(log_event, ensure_ascii=False).encode('utf-8')
+
+            # Kinesis로 전송
+            response = self.kinesis_client.put_record(
+                StreamName=self.kinesis_stream_name,
+                Data=data,
+                PartitionKey=partition_key
+            )
+
+            # 성공 로그 (선택적)
+            # print(f"✅ Kinesis 전송 성공: ShardId={response['ShardId']}, SequenceNumber={response['SequenceNumber']}")
+
+        except ClientError as e:
+            print(f"❌ Kinesis 전송 실패: {e}")
+        except Exception as e:
+            print(f"❌ 예상치 못한 오류: {e}")
 
 
     def close(self) -> None:

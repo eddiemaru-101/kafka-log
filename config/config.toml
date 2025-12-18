@@ -180,7 +180,7 @@ inquiry_samples = [
 # [log_sink] - LogSink 객체에서 사용
 # ============================================================
 [log_sink]
-# Sink 타입: "local", "s3", "kafka"
+# Sink 타입: "local", "s3", "kinesis"
 sink_type = "local"
 
 # 로컬 저장 설정
@@ -192,6 +192,6 @@ partition = 0
 s3_bucket = "sesac-l1"
 s3_prefix = "raw-userlog"
 
-# Kafka 설정 (sink_type = "kafka"일 때 사용)
-kafka_bootstrap_servers = "localhost:9092"
-kafka_topic = "user-logs"
+# Kinesis Data Streams 설정 (sink_type = "kinesis"일 때 사용)
+kinesis_stream_name = "user-logs-stream"
+kinesis_region = "ap-northeast-2"
