@@ -175,6 +175,13 @@ inquiry_samples = [
     "자막이 안보여요"
 ]
 
+# 콘텐츠 시청 패턴 확률 (합계 = 1.0)
+[log_contents.watch_pattern_probability]
+"play_stop" = 0.15                      # Play → stop (즉시 이탈)
+"play_pause_stop" = 0.25                # Play → Pause → stop (중단 이탈)
+"play_pause_resume_stop" = 0.50         # Play → Pause → Resume → stop (정상 시청)
+"play_pause_resume_pause_stop" = 0.10   # Play → Pause → Resume → Pause → stop (잦은 끊김)
+
 
 # ============================================================
 # [log_sink] - LogSink 객체에서 사용
@@ -184,7 +191,7 @@ inquiry_samples = [
 sink_type = "local"
 
 # 로컬 저장 설정
-output_dir = "./output"
+output_dir = "../output"
 topic = "user-logs"
 partition = 0
 

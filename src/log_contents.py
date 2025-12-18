@@ -1,6 +1,6 @@
 import random
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Union
 from schemas.enum import (
     ActivityLevel,
     Platform,
@@ -49,6 +49,14 @@ class LogContents:
         self.review_detail_ratio = self.log_contents_config.get("review_detail_ratio", 0.70)
         self.register_out_detail_ratio = self.log_contents_config.get("register_out_detail_ratio", 0.50)
 
+        # 시청 패턴 확률 설정
+        self.watch_pattern_prob = self.log_contents_config.get("watch_pattern_probability", {
+            "play_stop": 0.15,
+            "play_pause_stop": 0.25,
+            "play_pause_resume_stop": 0.50,
+            "play_pause_resume_pause_stop": 0.10
+        })
+
         # 샘플 데이터
         self.search_terms = self.log_contents_config.get("search_terms", ["해리포터", "어벤져스"])
         self.review_samples = self.log_contents_config.get("review_samples", ["재밌어요", "별로예요"])
@@ -64,7 +72,7 @@ class LogContents:
         event_type: Optional[str],
         timestamp: datetime,
         additional_data: Optional[Dict[str, Any]] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]:
         """
         로그 타입에 따른 로그 내용 생성
 
@@ -75,7 +83,7 @@ class LogContents:
             additional_data: 추가 데이터 (user_controller에서 전달)
 
         Returns:
-            로그 딕셔너리 또는 None (로그 없는 이벤트의 경우)
+            로그 딕셔너리, 로그 리스트, 또는 None (로그 없는 이벤트의 경우)
         """
         if event_type is None:
             return None
@@ -99,13 +107,8 @@ class LogContents:
             if type_name == "click":
                 return self._generate_contents_click(user, timestamp, additional_data)
             elif type_name == "start":
-                return self._generate_contents_start(user, timestamp, additional_data)
-            elif type_name == "stop":
-                return self._generate_contents_stop(user, timestamp, additional_data)
-            elif type_name == "pause":
-                return self._generate_contents_pause(user, timestamp, additional_data)
-            elif type_name == "resume":
-                return self._generate_contents_resume(user, timestamp, additional_data)
+                # contents-start는 패턴에 따라 여러 로그를 생성하여 리스트로 반환
+                return self._generate_contents_pattern(user, timestamp, additional_data)
             elif type_name == "like_on":
                 return self._generate_contents_like_on(user, timestamp, additional_data)
             elif type_name == "like_off":
@@ -242,30 +245,42 @@ class LogContents:
         }
 
 
-    def _generate_contents_start(
+    def _generate_contents_pattern(
         self,
         user,
         timestamp: datetime,
         additional_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """contents-start 로그 생성"""
-        content_id = user.current_content_id
+    ) -> List[Dict[str, Any]]:
+        """
+        contents-start 발생 시 패턴에 따라 여러 로그를 한 번에 생성
 
+        Returns:
+            로그 딕셔너리 리스트
+        """
+        logs = []
+
+        # 1. 패턴 타입 랜덤 선택
+        pattern_types = list(self.watch_pattern_prob.keys())
+        pattern_weights = list(self.watch_pattern_prob.values())
+        selected_pattern = random.choices(pattern_types, weights=pattern_weights)[0]
+
+        # 2. 활성도 등급에 따른 총 시청시간 계산 (분 단위)
+        total_watch_minutes = self._calculate_watch_duration(user.activity_level)
+
+        # 3. 콘텐츠 정보 가져오기
+        content_id = user.current_content_id
         if not content_id:
-            # 콘텐츠 없으면 랜덤 조회
             content = self.db_client.get_random_content()
             content_id = content["content_id"] if content else "movie_0"
             user.current_content_id = content_id
 
-        # 콘텐츠 정보 조회
         content = self.db_client.get_content_by_id(content_id)
-
         if not content:
             content = {"content_type": "movie"}
 
         content_type_code = 1 if content["content_type"] == "tv" else 2
 
-        # TV 시리즈면 에피소드 ID 필요
+        # TV 시리즈면 에피소드 ID
         episode_id = None
         if content["content_type"] == "tv":
             episodes = self.db_client.get_episodes_by_content_id(content_id)
@@ -274,117 +289,164 @@ class LogContents:
                 episode_id = episode["episode_id"]
                 user.current_episode_id = episode_id
 
-        log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        # 4. 패턴에 따라 로그 생성
+        current_time = timestamp
+        platform = self._get_random_platform()
+
+        # Play (contents-start) 로그
+        play_log = {
+            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
-            "event_category": 2,  # contents
+            "event_category": 2,
             "event_type": 4,  # start
-            "platform": self._get_random_platform(),
+            "platform": platform,
             "contents_id": content_id,
             "contents_type": content_type_code
         }
-
         if episode_id:
-            log["episode_id"] = episode_id
+            play_log["episode_id"] = episode_id
+        logs.append(play_log)
 
-        return log
+        # 패턴별 로그 생성 및 시간 할당
+        if selected_pattern == "play_stop":
+            # Play → stop (즉시 이탈)
+            current_time += timedelta(minutes=total_watch_minutes)
 
+        elif selected_pattern == "play_pause_stop":
+            # Play → Pause → stop (중단 이탈)
+            pause_time = total_watch_minutes * random.uniform(0.3, 0.7)
+            current_time += timedelta(minutes=pause_time)
 
-    def _generate_contents_stop(
-        self,
-        user,
-        timestamp: datetime,
-        additional_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """contents-stop 로그 생성"""
-        content_id = user.current_content_id or "movie_0"
-        episode_id = user.current_episode_id
+            pause_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "platform": platform,
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
+            if episode_id:
+                pause_log["episode_id"] = episode_id
+            logs.append(pause_log)
 
-        # 콘텐츠 정보 조회
-        content = self.db_client.get_content_by_id(content_id)
-        if not content:
-            content = {"content_type": "movie"}
+            # 일시정지 후 대기 시간
+            current_time += timedelta(minutes=total_watch_minutes - pause_time)
 
-        content_type_code = 1 if content["content_type"] == "tv" else 2
+        elif selected_pattern == "play_pause_resume_stop":
+            # Play → Pause → Resume → stop (정상 시청)
+            pause_time = total_watch_minutes * random.uniform(0.2, 0.4)
+            current_time += timedelta(minutes=pause_time)
 
-        log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            # Pause 로그
+            pause_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "platform": platform,
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
+            if episode_id:
+                pause_log["episode_id"] = episode_id
+            logs.append(pause_log)
+
+            # 일시정지 대기 시간 (1-5분)
+            wait_time = random.uniform(1, 5)
+            current_time += timedelta(minutes=wait_time)
+
+            # Resume 로그
+            resume_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 7,  # resume
+                "platform": platform,
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
+            if episode_id:
+                resume_log["episode_id"] = episode_id
+            logs.append(resume_log)
+
+            # 나머지 시청 시간
+            remaining_time = total_watch_minutes - pause_time
+            current_time += timedelta(minutes=remaining_time)
+
+        elif selected_pattern == "play_pause_resume_pause_stop":
+            # Play → Pause → Resume → Pause → stop (잦은 끊김)
+            first_pause_time = total_watch_minutes * random.uniform(0.15, 0.25)
+            current_time += timedelta(minutes=first_pause_time)
+
+            # 첫 번째 Pause
+            pause_log1 = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "platform": platform,
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
+            if episode_id:
+                pause_log1["episode_id"] = episode_id
+            logs.append(pause_log1)
+
+            # 대기
+            current_time += timedelta(minutes=random.uniform(1, 3))
+
+            # Resume
+            resume_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 7,  # resume
+                "platform": platform,
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
+            if episode_id:
+                resume_log["episode_id"] = episode_id
+            logs.append(resume_log)
+
+            # 재시청
+            second_watch_time = total_watch_minutes * random.uniform(0.2, 0.35)
+            current_time += timedelta(minutes=second_watch_time)
+
+            # 두 번째 Pause
+            pause_log2 = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "platform": platform,
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
+            if episode_id:
+                pause_log2["episode_id"] = episode_id
+            logs.append(pause_log2)
+
+            # 나머지 시간
+            remaining = total_watch_minutes - first_pause_time - second_watch_time
+            current_time += timedelta(minutes=remaining)
+
+        # 마지막 Stop 로그 (모든 패턴 공통)
+        stop_log = {
+            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
-            "event_category": 2,  # contents
+            "event_category": 2,
             "event_type": 5,  # stop
-            "platform": self._get_random_platform(),
+            "platform": platform,
             "contents_id": content_id,
             "contents_type": content_type_code
         }
-
         if episode_id:
-            log["episode_id"] = episode_id
+            stop_log["episode_id"] = episode_id
+        logs.append(stop_log)
 
-        return log
-
-
-    def _generate_contents_pause(
-        self,
-        user,
-        timestamp: datetime,
-        additional_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """contents-pause 로그 생성"""
-        content_id = user.current_content_id or "movie_0"
-        episode_id = user.current_episode_id
-
-        content = self.db_client.get_content_by_id(content_id)
-        if not content:
-            content = {"content_type": "movie"}
-
-        content_type_code = 1 if content["content_type"] == "tv" else 2
-
-        log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": user.user_id,
-            "event_category": 2,  # contents
-            "event_type": 6,  # pause
-            "platform": self._get_random_platform(),
-            "contents_id": content_id,
-            "contents_type": content_type_code
-        }
-
-        if episode_id:
-            log["episode_id"] = episode_id
-
-        return log
-
-
-    def _generate_contents_resume(
-        self,
-        user,
-        timestamp: datetime,
-        additional_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """contents-resume 로그 생성"""
-        content_id = user.current_content_id or "movie_0"
-        episode_id = user.current_episode_id
-
-        content = self.db_client.get_content_by_id(content_id)
-        if not content:
-            content = {"content_type": "movie"}
-
-        content_type_code = 1 if content["content_type"] == "tv" else 2
-
-        log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": user.user_id,
-            "event_category": 2,  # contents
-            "event_type": 7,  # resume
-            "platform": self._get_random_platform(),
-            "contents_id": content_id,
-            "contents_type": content_type_code
-        }
-
-        if episode_id:
-            log["episode_id"] = episode_id
-
-        return log
+        return logs
 
 
     def _generate_contents_like_on(
