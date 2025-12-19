@@ -312,10 +312,10 @@ event_type = `{category}-{type}`
 | 접속 | `access` / 1 | 로그인 | `in` / 1 | user_id, platform, timestamp |
 |  |  | 로그아웃 | `out` / 2 | user_id, platform, timestamp |
 | 콘텐츠 | `contents` / 2 | 콘텐츠 클릭 | `click` / 3 | user_id, contents_id, contents_type, platform, timestamp |
-|  |  | 콘텐츠 재생 | `start` / 4 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
-|  |  | 콘텐츠 중지 | `stop` / 5 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
-|  |  | 콘텐츠 일시정지 | `pause` / 6 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
-|  |  | 콘텐츠 재시작 | `resume` / 7 | user_id, contents_id, contents_type, episode_id, ~~progress_time,~~ platform, timestamp |
+|  |  | 콘텐츠 재생 | `start` / 4 | user_id, contents_id, contents_type, episode_id,  platform, timestamp |
+|  |  | 콘텐츠 중지 | `stop` / 5 | user_id, contents_id, contents_type, episode_id, platform, timestamp |
+|  |  | 콘텐츠 일시정지 | `pause` / 6 | user_id, contents_id, contents_type, episode_id, platform, timestamp |
+|  |  | 콘텐츠 재시작 | `resume` / 7 | user_id, contents_id, contents_type, episode_id, platform, timestamp |
 |  |  | 콘텐츠 좋아요 | `like_on` / 8 | user_id, contents_id, contents_type, timestamp |
 |  |  | 콘텐츠 좋아요 취소 | `like_off` /9 | user_id, contents_id, contents_type, timestamp |
 | 리뷰 | `review` / 3 | 콘텐츠 리뷰 작성 | `review` / 10 | user_id, contents_id, rating, review_detail, timestamp |
@@ -337,7 +337,6 @@ event_type = `{category}-{type}`
 | contents_id | 콘텐츠 ID | VARCHAR(50) | contents_1234 | *콘텐츠 테이블 참고 |
 | contents_type | 콘텐츠 유형 | TINYINT | 1 | • 1: series - 시리즈 물• 2: single - 단편 |
 | episode_id | 에피소드 ID | VARCHAR(50)NULLABLE | episode_1234 | *콘텐츠 테이블 참고 |
-| progress_time | 콘텐츠 시청 시간 | VARCHAR(50) | mm:ss | - |
 | rating | 리뷰 평점 | FLOAT | 3.5 | 평점 범위 (0~5, 0.5 단위)0.5 단위 외의 숫자 들어올 경우 round |
 | review_detail | 리뷰 내용 | VARCHAR(255), NULLABLE | “재밌어요” | - |
 | subscription_id | 구독 상품 ID | VARCHAR(50) | subs_1 | *구독 테이블 참고 |

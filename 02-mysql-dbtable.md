@@ -1,5 +1,6 @@
 # DB테이블 - DDL
-
+- DB는 목업db, rds(mysql)
+- 목업db, rds(mysql)의 스키마는 모두 아래와동일
 ### Tables
 
 1. **subscription_plans**
@@ -9,7 +10,28 @@
 5. **user_subscriptions**
 6. **users**
 
+
 1. **subscription_plans**
+
+| subscription_id | subscription_type | subscription_period | price |
+| --- | --- | --- | --- |
+| s_1 | standard | 1 | 9,900 |
+| s_2 | standard | 3 | 26,900 |
+| s_3 | standard | 6 | 49,900 |
+| s_4 | standard | 12 | 89,900 |
+| s_5 | premium | 1 | 14,900 |
+| s_6 | premium | 3 | 39,900 |
+| s_7 | premium | 6 | 74,900 |
+| s_8 | premium | 12 | 134,900 |
+| s_9 | family | 1 | 19,900 |
+| s_10 | family | 3 | 54,900 |
+| s_11 | family | 6 | 99,900 |
+| s_12 | family | 12 | 179,900 |
+| s_13 | mobile_only | 1 | 5,900 |
+| s_14 | mobile_only | 3 | 15,900 |
+| s_15 | mobile_only | 6 | 29,900 |
+| s_16 | mobile_only | 12 | 53,900 |
+
 
 ```sql
 -- ott_service.subscription_plans definition

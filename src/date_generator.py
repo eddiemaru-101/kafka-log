@@ -135,19 +135,23 @@ class LogDateGenerator:
             k=total_logs
         )
         
-        # 시간 순서대로 정렬
-        sampled_datetimes.sort()
-        
-        # Generator로 반환
+        # 분/초까지 포함한 완전한 타임스탬프 리스트 생성
+        full_timestamps = []
         for year, month, day, hour in sampled_datetimes:
             minute = random.randint(0, 59)
             second = random.randint(0, 59)
-            
+
             timestamp = datetime(
                 year, month, day, hour, minute, second,
                 tzinfo=self.tz
             )
-            
+            full_timestamps.append(timestamp)
+
+        # 시간 순서대로 정렬 (분/초까지 포함)
+        full_timestamps.sort()
+
+        # Generator로 반환
+        for timestamp in full_timestamps:
             yield timestamp
     
     

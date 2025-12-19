@@ -4,12 +4,12 @@ from enum import Enum
 class UserState(Enum):
     """
     유저 상태 (가이드 문서 기반)
+
+    contents-start 이벤트는 패턴에 따라 모든 로그를 한번에 생성하므로
+    IN_START, IN_PLAYING, IN_PAUSE 상태는 존재하지 않음
     """
     MAIN_PAGE = "MAIN_PAGE"          # 메인 페이지
     CONTENT_PAGE = "CONTENT_PAGE"    # 콘텐츠 상세 페이지
-    IN_START = "IN_START"            # 재생 시작 직후
-    IN_PLAYING = "IN_PLAYING"        # 재생 중
-    IN_PAUSE = "IN_PAUSE"            # 일시정지
     USER_OUT = "USER_OUT"            # 로그아웃/세션 종료
 
 class ActivityLevel(Enum):

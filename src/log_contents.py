@@ -8,7 +8,7 @@ from schemas.enum import (
     ReasonType,
     InquiryType
 )
-from db_client import DBClient
+from src.db_client import DBClient
 
 
 class LogContents:
@@ -55,6 +55,14 @@ class LogContents:
             "play_pause_stop": 0.25,
             "play_pause_resume_stop": 0.50,
             "play_pause_resume_pause_stop": 0.10
+        })
+
+        # 구독 상품 타입별 선택 비율
+        self.subscription_type_ratio = self.log_contents_config.get("subscription_type_ratio", {
+            "standard": 0.40,
+            "premium": 0.25,
+            "family": 0.20,
+            "mobile_only": 0.15
         })
 
         # 샘플 데이터
@@ -107,8 +115,10 @@ class LogContents:
             if type_name == "click":
                 return self._generate_contents_click(user, timestamp, additional_data)
             elif type_name == "start":
-                # contents-start는 패턴에 따라 여러 로그를 생성하여 리스트로 반환
-                return self._generate_contents_pattern(user, timestamp, additional_data)
+                # contents-start는 패턴에 따라 여러 로그를 생성 (Play, Pause, Resume, Stop)
+                # 리스트로 반환하여 main.py에서 순차적으로 sink에 전달
+                logs = self._generate_contents_pattern(user, timestamp, additional_data)
+                return logs  # 리스트 반환 (2~5개 로그)
             elif type_name == "like_on":
                 return self._generate_contents_like_on(user, timestamp, additional_data)
             elif type_name == "like_off":
@@ -195,18 +205,26 @@ class LogContents:
             "user_id": user.user_id,
             "event_category": 1,  # access
             "event_type": 1,  # in
-            "platform": self._get_random_platform()
+            "detail": {
+                "platform": self._get_random_platform()
+            }
         }
 
 
     def _generate_access_out(self, user, timestamp: datetime) -> Dict[str, Any]:
         """access-out 로그 생성"""
+        # 로그아웃 시 플래그 리셋 (같은 날 재로그인 시 access-in 발생 가능하도록)
+        if hasattr(user, 'has_logged_in_today'):
+            user.has_logged_in_today = False
+
         return {
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
             "event_category": 1,  # access
             "event_type": 2,  # out
-            "platform": self._get_random_platform()
+            "detail": {
+                "platform": self._get_random_platform()
+            }
         }
 
 
@@ -224,24 +242,26 @@ class LogContents:
         if not content:
             # 콘텐츠 없으면 기본값
             content = {
-                "content_id": "movie_0",
-                "content_type": "movie"
+                "contents_id": "movie_0",
+                "contents_type": "movie"
             }
 
         # User 객체에 콘텐츠 정보 저장
-        user.current_content_id = content["content_id"]
+        user.current_content_id = content["contents_id"]
 
         # content_type → TINYINT 변환
-        content_type_code = 1 if content["content_type"] == "tv" else 2
+        content_type_code = 1 if content["contents_type"] == "tv" else 2
 
         return {
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
             "event_category": 2,  # contents
             "event_type": 3,  # click
-            "platform": self._get_random_platform(),
-            "contents_id": content["content_id"],
-            "contents_type": content_type_code
+            "detail": {
+                "platform": self._get_random_platform(),
+                "contents_id": content["contents_id"],
+                "contents_type": content_type_code
+            }
         }
 
 
@@ -271,18 +291,18 @@ class LogContents:
         content_id = user.current_content_id
         if not content_id:
             content = self.db_client.get_random_content()
-            content_id = content["content_id"] if content else "movie_0"
+            content_id = content["contents_id"] if content else "movie_0"
             user.current_content_id = content_id
 
         content = self.db_client.get_content_by_id(content_id)
         if not content:
-            content = {"content_type": "movie"}
+            content = {"contents_type": "movie"}
 
-        content_type_code = 1 if content["content_type"] == "tv" else 2
+        content_type_code = 1 if content["contents_type"] == "tv" else 2
 
         # TV 시리즈면 에피소드 ID
         episode_id = None
-        if content["content_type"] == "tv":
+        if content["contents_type"] == "tv":
             episodes = self.db_client.get_episodes_by_content_id(content_id)
             if episodes:
                 episode = random.choice(episodes)
@@ -294,17 +314,21 @@ class LogContents:
         platform = self._get_random_platform()
 
         # Play (contents-start) 로그
-        play_log = {
-            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": user.user_id,
-            "event_category": 2,
-            "event_type": 4,  # start
+        detail = {
             "platform": platform,
             "contents_id": content_id,
             "contents_type": content_type_code
         }
         if episode_id:
-            play_log["episode_id"] = episode_id
+            detail["episode_id"] = episode_id
+
+        play_log = {
+            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_id": user.user_id,
+            "event_category": 2,
+            "event_type": 4,  # start
+            "detail": detail
+        }
         logs.append(play_log)
 
         # 패턴별 로그 생성 및 시간 할당
@@ -317,17 +341,21 @@ class LogContents:
             pause_time = total_watch_minutes * random.uniform(0.3, 0.7)
             current_time += timedelta(minutes=pause_time)
 
-            pause_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user.user_id,
-                "event_category": 2,
-                "event_type": 6,  # pause
+            pause_detail = {
                 "platform": platform,
                 "contents_id": content_id,
                 "contents_type": content_type_code
             }
             if episode_id:
-                pause_log["episode_id"] = episode_id
+                pause_detail["episode_id"] = episode_id
+
+            pause_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "detail": pause_detail
+            }
             logs.append(pause_log)
 
             # 일시정지 후 대기 시간
@@ -339,17 +367,21 @@ class LogContents:
             current_time += timedelta(minutes=pause_time)
 
             # Pause 로그
-            pause_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user.user_id,
-                "event_category": 2,
-                "event_type": 6,  # pause
+            pause_detail = {
                 "platform": platform,
                 "contents_id": content_id,
                 "contents_type": content_type_code
             }
             if episode_id:
-                pause_log["episode_id"] = episode_id
+                pause_detail["episode_id"] = episode_id
+
+            pause_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "detail": pause_detail
+            }
             logs.append(pause_log)
 
             # 일시정지 대기 시간 (1-5분)
@@ -357,17 +389,21 @@ class LogContents:
             current_time += timedelta(minutes=wait_time)
 
             # Resume 로그
-            resume_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user.user_id,
-                "event_category": 2,
-                "event_type": 7,  # resume
+            resume_detail = {
                 "platform": platform,
                 "contents_id": content_id,
                 "contents_type": content_type_code
             }
             if episode_id:
-                resume_log["episode_id"] = episode_id
+                resume_detail["episode_id"] = episode_id
+
+            resume_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 7,  # resume
+                "detail": resume_detail
+            }
             logs.append(resume_log)
 
             # 나머지 시청 시간
@@ -380,34 +416,42 @@ class LogContents:
             current_time += timedelta(minutes=first_pause_time)
 
             # 첫 번째 Pause
-            pause_log1 = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user.user_id,
-                "event_category": 2,
-                "event_type": 6,  # pause
+            pause_detail1 = {
                 "platform": platform,
                 "contents_id": content_id,
                 "contents_type": content_type_code
             }
             if episode_id:
-                pause_log1["episode_id"] = episode_id
+                pause_detail1["episode_id"] = episode_id
+
+            pause_log1 = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "detail": pause_detail1
+            }
             logs.append(pause_log1)
 
             # 대기
             current_time += timedelta(minutes=random.uniform(1, 3))
 
             # Resume
-            resume_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user.user_id,
-                "event_category": 2,
-                "event_type": 7,  # resume
+            resume_detail = {
                 "platform": platform,
                 "contents_id": content_id,
                 "contents_type": content_type_code
             }
             if episode_id:
-                resume_log["episode_id"] = episode_id
+                resume_detail["episode_id"] = episode_id
+
+            resume_log = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 7,  # resume
+                "detail": resume_detail
+            }
             logs.append(resume_log)
 
             # 재시청
@@ -415,17 +459,21 @@ class LogContents:
             current_time += timedelta(minutes=second_watch_time)
 
             # 두 번째 Pause
-            pause_log2 = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user.user_id,
-                "event_category": 2,
-                "event_type": 6,  # pause
+            pause_detail2 = {
                 "platform": platform,
                 "contents_id": content_id,
                 "contents_type": content_type_code
             }
             if episode_id:
-                pause_log2["episode_id"] = episode_id
+                pause_detail2["episode_id"] = episode_id
+
+            pause_log2 = {
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user.user_id,
+                "event_category": 2,
+                "event_type": 6,  # pause
+                "detail": pause_detail2
+            }
             logs.append(pause_log2)
 
             # 나머지 시간
@@ -433,17 +481,21 @@ class LogContents:
             current_time += timedelta(minutes=remaining)
 
         # 마지막 Stop 로그 (모든 패턴 공통)
-        stop_log = {
-            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": user.user_id,
-            "event_category": 2,
-            "event_type": 5,  # stop
+        stop_detail = {
             "platform": platform,
             "contents_id": content_id,
             "contents_type": content_type_code
         }
         if episode_id:
-            stop_log["episode_id"] = episode_id
+            stop_detail["episode_id"] = episode_id
+
+        stop_log = {
+            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_id": user.user_id,
+            "event_category": 2,
+            "event_type": 5,  # stop
+            "detail": stop_detail
+        }
         logs.append(stop_log)
 
         return logs
@@ -460,17 +512,19 @@ class LogContents:
 
         content = self.db_client.get_content_by_id(content_id)
         if not content:
-            content = {"content_type": "movie"}
+            content = {"contents_type": "movie"}
 
-        content_type_code = 1 if content["content_type"] == "tv" else 2
+        content_type_code = 1 if content["contents_type"] == "tv" else 2
 
         return {
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
             "event_category": 2,  # contents
             "event_type": 8,  # like_on
-            "contents_id": content_id,
-            "contents_type": content_type_code
+            "detail": {
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
         }
 
 
@@ -485,17 +539,19 @@ class LogContents:
 
         content = self.db_client.get_content_by_id(content_id)
         if not content:
-            content = {"content_type": "movie"}
+            content = {"contents_type": "movie"}
 
-        content_type_code = 1 if content["content_type"] == "tv" else 2
+        content_type_code = 1 if content["contents_type"] == "tv" else 2
 
         return {
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
             "event_category": 2,  # contents
             "event_type": 9,  # like_off
-            "contents_id": content_id,
-            "contents_type": content_type_code
+            "detail": {
+                "contents_id": content_id,
+                "contents_type": content_type_code
+            }
         }
 
 
@@ -517,17 +573,21 @@ class LogContents:
         if random.random() < self.review_detail_ratio:
             review_detail = random.choice(self.review_samples)
 
-        log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": user.user_id,
-            "event_category": 3,  # review
-            "event_type": 10,  # review
+        detail = {
             "contents_id": content_id,
             "rating": rating
         }
 
         if review_detail:
-            log["review_detail"] = review_detail
+            detail["detail"] = review_detail
+
+        log = {
+            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_id": user.user_id,
+            "event_category": 3,  # review
+            "event_type": 10,  # review
+            "detail": detail
+        }
 
         return log
 
@@ -535,18 +595,31 @@ class LogContents:
     # ========== 구독 로그 (subscription) ==========
     def _generate_subscription_start(self, user, timestamp: datetime) -> Dict[str, Any]:
         """subscription-start 로그 생성"""
-        # DB에서 랜덤 구독 상품 조회
-        subscription = self.db_client.get_random_subscription()
+        # config 비율에 따라 subscription_type 선택
+        subscription_types = list(self.subscription_type_ratio.keys())
+        weights = list(self.subscription_type_ratio.values())
+        selected_type = random.choices(subscription_types, weights=weights)[0]
 
-        if not subscription:
-            subscription = {"subscription_id": "s_1"}
+        # subscription_type에 따른 ID 매핑
+        # standard: s_1~s_4, premium: s_5~s_8, family: s_9~s_12, mobile_only: s_13~s_16
+        type_to_id_range = {
+            "standard": (1, 4),
+            "premium": (5, 8),
+            "family": (9, 12),
+            "mobile_only": (13, 16)
+        }
+
+        start_id, end_id = type_to_id_range.get(selected_type, (1, 4))
+        subscription_id = f"s_{random.randint(start_id, end_id)}"
 
         return {
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
             "event_category": 4,  # subscription
             "event_type": 4,  # start
-            "subscription_id": subscription["subscription_id"]
+            "detail": {
+                "subscription_id": subscription_id
+            }
         }
 
 
@@ -563,7 +636,9 @@ class LogContents:
             "user_id": user.user_id,
             "event_category": 4,  # subscription
             "event_type": 5,  # stop
-            "subscription_id": subscription["subscription_id"]
+            "detail": {
+                "subscription_id": subscription["subscription_id"]
+            }
         }
 
 
@@ -586,7 +661,9 @@ class LogContents:
             "user_id": user.user_id,
             "event_category": 5,  # register
             "event_type": 1,  # in
-            "traffic_source": traffic_source
+            "detail": {
+                "traffic_source": traffic_source
+            }
         }
 
 
@@ -606,16 +683,20 @@ class LogContents:
         if random.random() < self.register_out_detail_ratio:
             reason_detail = random.choice(self.register_out_reasons)
 
+        detail = {
+            "reason_type": reason_type
+        }
+
+        if reason_detail:
+            detail["reason_detail"] = reason_detail
+
         log = {
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": user.user_id,
             "event_category": 5,  # register
             "event_type": 2,  # out
-            "reason_type": reason_type
+            "detail": detail
         }
-
-        if reason_detail:
-            log["reason_detail"] = reason_detail
 
         return log
 
@@ -631,7 +712,9 @@ class LogContents:
             "user_id": user.user_id,
             "event_category": 6,  # search
             "event_type": 11,  # search
-            "term": term
+            "detail": {
+                "term": term
+            }
         }
 
 
@@ -655,6 +738,8 @@ class LogContents:
             "user_id": user.user_id,
             "event_category": 7,  # support
             "event_type": 12,  # inquiry
-            "inquiry_type": inquiry_type,
-            "inquiry_detail": inquiry_detail
+            "detail": {
+                "inquiry_type": inquiry_type,
+                "inquiry_detail": inquiry_detail
+            }
         }

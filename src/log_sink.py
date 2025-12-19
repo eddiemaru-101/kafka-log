@@ -1,11 +1,14 @@
 import os
 import json
 import time
+import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import boto3
 from botocore.exceptions import ClientError
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 
 class LogSink:
@@ -62,9 +65,9 @@ class LogSink:
         # 오프셋 카운터 (파일명용)
         self.offset = 0
 
-        # 현재 파일 핸들러
-        self.current_file = None
+        # 현재 시간당 로그 버퍼 (시간당 하나의 parquet 파일 생성)
         self.current_hour = None
+        self.log_buffer: List[Dict[str, Any]] = []
 
         print(f"✅ LogSink 초기화 완료")
         print(f"   Mode: {self.mode}")
@@ -106,12 +109,47 @@ class LogSink:
 
     def _write_to_local(self, log_event: Dict[str, Any]) -> None:
         """
-        로컬 파일에 저장
+        로컬 파일에 Parquet 형식으로 저장
 
         폴더 구조: {output_dir}/{topic}/year={YYYY}/month={MM}/day={DD}/hour={HH}/
-        파일명: {topic}+{partition}+{offset(10자리)}.json
+        파일명: {topic}-{offset(6자리)}-{uuid}.parquet
+
+        시간당 하나의 parquet 파일로 저장 (버퍼링 방식)
         """
         timestamp_str = log_event.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+        year = timestamp.strftime("%Y")
+        month = timestamp.strftime("%m")
+        day = timestamp.strftime("%d")
+        hour = timestamp.strftime("%H")
+
+        current_hour_key = f"{year}-{month}-{day}-{hour}"
+
+        # 시간이 바뀌면 기존 버퍼를 parquet로 저장하고 새 버퍼 시작
+        if self.current_hour != current_hour_key:
+            if self.log_buffer:
+                # 기존 시간대 로그를 parquet로 저장
+                self._flush_buffer_to_parquet()
+
+            self.current_hour = current_hour_key
+
+        # 현재 시간 버퍼에 로그 추가
+        self.log_buffer.append(log_event)
+
+
+    def _flush_buffer_to_parquet(self) -> None:
+        """
+        버퍼에 쌓인 로그를 Parquet 파일로 저장
+
+        numpy 배열로 변환 후 PyArrow Table로 변환하여 성능 최적화
+        """
+        if not self.log_buffer:
+            return
+
+        # 첫 번째 로그의 타임스탬프로 경로 결정
+        first_log = self.log_buffer[0]
+        timestamp_str = first_log.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
         year = timestamp.strftime("%Y")
@@ -123,24 +161,33 @@ class LogSink:
         dir_path = Path(self.output_dir) / self.topic / f"year={year}" / f"month={month}" / f"day={day}" / f"hour={hour}"
         dir_path.mkdir(parents=True, exist_ok=True)
 
-        # 시간이 바뀌면 새 파일 생성
-        current_hour_key = f"{year}-{month}-{day}-{hour}"
-        if self.current_hour != current_hour_key:
-            if self.current_file:
-                self.current_file.close()
+        # 파일명 생성: {topic}-{offset(6자리)}-{uuid}.parquet
+        file_uuid = str(uuid.uuid4())[:6]  # 짧은 UUID
+        filename = f"{self.topic}-{self.offset:06d}-{file_uuid}.parquet"
+        file_path = dir_path / filename
 
-            # 파일명 생성
-            filename = f"{self.topic}+{self.partition}+{self.offset:010d}.json"
-            file_path = dir_path / filename
+        # Dict 리스트를 PyArrow Table로 변환 (pandas 없이)
+        # 모든 키를 수집
+        all_keys = set()
+        for log in self.log_buffer:
+            all_keys.update(log.keys())
 
-            self.current_file = open(file_path, "w", encoding="utf-8")
-            self.current_hour = current_hour_key
+        # 각 컬럼별로 리스트 생성
+        columns = {key: [] for key in all_keys}
+        for log in self.log_buffer:
+            for key in all_keys:
+                columns[key].append(log.get(key))
 
-        # JSON 한 줄씩 쓰기 (JSONL 형식)
-        json_line = json.dumps(log_event, ensure_ascii=False)
-        self.current_file.write(json_line + "\n")
-        self.current_file.flush()
+        # PyArrow Table 생성
+        pa_table = pa.table(columns)
 
+        # Parquet 파일로 저장
+        pq.write_table(pa_table, str(file_path), compression='snappy')
+
+        print(f"💾 Parquet 저장: {filename} ({len(self.log_buffer)}개 로그)")
+
+        # 버퍼 초기화
+        self.log_buffer = []
         self.offset += 1
 
 
@@ -194,9 +241,9 @@ class LogSink:
 
 
     def close(self) -> None:
-        """리소스 정리"""
-        if self.current_file:
-            self.current_file.close()
-            self.current_file = None
+        """리소스 정리 및 마지막 버퍼 flush"""
+        # 남은 버퍼가 있으면 parquet로 저장
+        if self.log_buffer:
+            self._flush_buffer_to_parquet()
 
         print("✅ LogSink 종료")

@@ -2,13 +2,13 @@ import random
 from datetime import datetime, date
 from typing import Tuple, Optional, List
 from schemas.enum import UserState, ActivityLevel
-from db_client import DBClient
+from src.db_client import DBClient
 
 
 class User:
     """
     유저 객체
-    
+
     책임:
     - 유저 정보 저장
     - 현재 상태 관리
@@ -26,13 +26,16 @@ class User:
         self.user_id = user_id
         self.is_subscribed = is_subscribed
         self.current_state = current_state
-        
+
         # 현재 시청 중인 콘텐츠 정보
         self.current_content_id = current_content_id
         self.current_episode_id = current_episode_id
-        
+
         # 활성도 등급 (추가)
         self.activity_level = activity_level
+
+        # 오늘 처음 로그인 여부 (일별 로드 시 False로 초기화됨)
+        self.has_logged_in_today = False
 
 
 class UserSelector:
@@ -164,6 +167,7 @@ class UserSelector:
             return
 
         # User 객체 생성 및 daily_users에 추가
+        # 일별 로드 시 모든 유저는 아직 선택되지 않은 상태 (has_logged_in_today = False)
         for user_data in users_data:
             user = User(
                 user_id=user_data["user_id"],
@@ -171,6 +175,7 @@ class UserSelector:
                 current_state=UserState.MAIN_PAGE,
                 activity_level=self._assign_activity_level()  # 추가
             )
+            user.has_logged_in_today = False  # 오늘 아직 로그인 안함
             self.daily_users[user.user_id] = user
 
         print(f"✅ {len(self.daily_users)}명의 유저 로드 완료")
@@ -180,14 +185,15 @@ class UserSelector:
     def _create_new_user(self, signup_date: Optional[date] = None) -> User:
         """신규 유저 생성 (DB에 INSERT)"""
         user_id = self.db_client.create_new_user(signup_date=signup_date)
-        
+
         user = User(
             user_id=user_id,
             is_subscribed=False,
             current_state=UserState.MAIN_PAGE,
             activity_level=self._assign_activity_level()  # 추가
         )
-        
+        user.has_logged_in_today = False  # 신규 유저도 아직 로그인 안함
+
         self.daily_users[user_id] = user
         return user
     

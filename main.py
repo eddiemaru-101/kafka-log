@@ -145,14 +145,11 @@ def run_batch_mode(
             user, current_state = user_selector.select_user(timestamp)
 
             # Stage 3: 상태 기반 다음 액션 결정 + 상태 전이
+            # (user_controller가 첫 로그인 시 access-in을 자동으로 반환)
             event_type, next_state, additional_data = user_event_controller.select_event(
-                user_id=user.user_id,
-                is_subscribed=user.is_subscribed,
-                current_state=current_state,
-                activity_level=user.activity_level
+                user=user,
+                current_state=current_state
             )
-
-
 
             # Stage 4: 로그 내용 생성 (DB 조회 포함)
             log_event = log_contents.generate(
@@ -166,8 +163,14 @@ def run_batch_mode(
 
             # Stage 5: 로그 출력
             if log_event:
-                log_sink.write(log_event)
-                log_count += 1
+                # log_event가 리스트인 경우 (contents-start 등) 개별 로그로 처리
+                if isinstance(log_event, list):
+                    for single_log in log_event:
+                        log_sink.write(single_log)
+                        log_count += 1
+                else:
+                    log_sink.write(log_event)
+                    log_count += 1
 
             # MPS 제어
             if sleep_interval > 0:
@@ -231,18 +234,18 @@ def run_streaming_mode(
             user, current_state = user_selector.select_user(timestamp)
 
             # Stage 3: 상태 기반 다음 액션 결정 + 상태 전이
+            # (user_controller가 첫 로그인 시 access-in을 자동으로 반환)
             event_type, next_state, additional_data = user_event_controller.select_event(
-                user_id=user.user_id,
-                is_subscribed=user.is_subscribed,
-                current_state=current_state,
-                activity_level=user.activity_level
+                user=user,
+                current_state=current_state
             )
 
             # Stage 4: 로그 내용 생성
             log_event = log_contents.generate(
                 user=user,
                 event_type=event_type,
-                timestamp=timestamp
+                timestamp=timestamp,
+                additional_data=additional_data
             )
 
             # 상태 업데이트
@@ -250,8 +253,14 @@ def run_streaming_mode(
 
             # Stage 5: 로그 출력
             if log_event:
-                log_sink.write(log_event)
-                log_count += 1
+                # contents-start 패턴의 경우 리스트로 반환됨
+                if isinstance(log_event, list):
+                    for log in log_event:
+                        log_sink.write(log)
+                        log_count += 1
+                else:
+                    log_sink.write(log_event)
+                    log_count += 1
 
             # MPS 제어
             if sleep_interval > 0:

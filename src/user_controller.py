@@ -39,7 +39,7 @@ class UserEventController:
     def _load_state_transitions(self) -> dict:
         """
         상태별 이벤트 발생 확률 로드
-        
+
         Returns:
             상태별 전이 확률 딕셔너리
         """
@@ -64,68 +64,47 @@ class UserEventController:
             },
             "CONTENT_PAGE": {
                 "subscribed": {
-                    "contents-start": 0.60,
-                    "contents-like_on": 0.15,
-                    "contents-like_off": 0.05,
-                    "review-review": 0.10,
-                    "back": 0.10,  # 로그 없음
+                    "contents-start": 0.67,
+                    "contents-like_on": 0.16,
+                    "contents-like_off": 0.06,
+                    "review-review": 0.11,
                 },
                 "not_subscribed": {
-                    "contents-like_on": 0.30,
-                    "contents-like_off": 0.10,
-                    "back": 0.60,  # 로그 없음
+                    "contents-like_on": 0.75,
+                    "contents-like_off": 0.25,
                 }
-            },
-            "IN_PLAYING": {
-                "contents-stop_and_out": 0.10,
-                "contents-pause": 0.20,
-                "continue": 0.50,  # 로그 없음
-                "contents-stop": 0.20,
-            },
-            "IN_PAUSE": {
-                "contents-resume": 0.40,
-                "contents-stop_and_out": 0.10,
-                "contents-stop": 0.50,
             }
         })
 
     def select_event(
         self,
-        user_id: int,
-        is_subscribed: bool,
-        current_state: UserState,
-        activity_level: Optional[ActivityLevel] = None
+        user,
+        current_state: UserState
     ) -> Tuple[Optional[str], UserState, Optional[dict]]:
         """
         유저 상태 기반 다음 이벤트 선택
-        
+
         Args:
-            user_id: 유저 ID
-            is_subscribed: 구독 여부
+            user: User 객체
             current_state: 현재 유저 상태
-            activity_level: 활성도 등급 (추가)
-        
+
         Returns:
             (event_type, next_state, additional_data)
         """
+        # 오늘 처음 선택되는 경우 access-in 로그 먼저 발생
+        if hasattr(user, 'has_logged_in_today') and not user.has_logged_in_today:
+            user.has_logged_in_today = True
+            return "access-in", UserState.MAIN_PAGE, None
+
         if current_state == UserState.MAIN_PAGE:
-            return self._handle_main_page(is_subscribed)
-        
+            return self._handle_main_page(user.is_subscribed)
+
         elif current_state == UserState.CONTENT_PAGE:
-            return self._handle_content_page(is_subscribed, activity_level)  # 수정
-        
-        elif current_state == UserState.IN_START:
-            return self._handle_in_start()
-        
-        elif current_state == UserState.IN_PLAYING:
-            return self._handle_in_playing(activity_level)  # 수정
-        
-        elif current_state == UserState.IN_PAUSE:
-            return self._handle_in_pause(activity_level)  # 수정
-        
+            return self._handle_content_page(user.is_subscribed, user.activity_level)
+
         elif current_state == UserState.USER_OUT:
             return None, UserState.USER_OUT, None
-        
+
         else:
             return None, UserState.USER_OUT, None
         
@@ -176,8 +155,15 @@ class UserEventController:
         is_subscribed: bool,
         activity_level: Optional[ActivityLevel] = None
     ) -> Tuple[Optional[str], UserState, Optional[dict]]:
-        """CONTENT_PAGE 상태 처리"""
+        """
+        CONTENT_PAGE 상태 처리
 
+        contents-start 이벤트는 패턴에 따라 모든 로그를 한번에 생성하고
+        바로 MAIN_PAGE로 전이
+
+        모든 이벤트 후 CONTENT_PAGE → MAIN_PAGE로 전이
+        (콘텐츠 상세 페이지에서 행동 후 메인으로 돌아가는 흐름)
+        """
         if is_subscribed:
             probs = self.state_transitions["CONTENT_PAGE"]["subscribed"]
         else:
@@ -190,98 +176,24 @@ class UserEventController:
 
         if event == "contents-start":
             # activity_level을 additional_data에 포함 (로그 생성 시 시청시간 계산용)
-            return "contents-start", UserState.IN_START, {
+            # 패턴에 따라 모든 재생 로그 생성 후 MAIN_PAGE로 전이
+            return "contents-start", UserState.MAIN_PAGE, {
                 "need_episode": True,
                 "activity_level": activity_level
             }
-        
+
         elif event == "contents-like_on":
-            return "contents-like_on", UserState.CONTENT_PAGE, None
-        
+            return "contents-like_on", UserState.MAIN_PAGE, None
+
         elif event == "contents-like_off":
-            return "contents-like_off", UserState.CONTENT_PAGE, None
-        
+            return "contents-like_off", UserState.MAIN_PAGE, None
+
         elif event == "review-review":
-            return "review-review", UserState.CONTENT_PAGE, None
-        
-        elif event == "back":
-            # 뒤로가기 - 로그 없음
+            return "review-review", UserState.MAIN_PAGE, None
+
+        else:
+            # 알 수 없는 이벤트는 MAIN_PAGE로
             return None, UserState.MAIN_PAGE, None
-        
-        else:
-            return None, UserState.MAIN_PAGE, None
-
-    def _handle_in_start(self) -> Tuple[Optional[str], UserState, Optional[dict]]:
-        """IN_START 상태 처리 - 로그 없이 IN_PLAYING으로 전환"""
-        return None, UserState.IN_PLAYING, None
-
-    def _handle_in_playing(
-        self,
-        activity_level: Optional[ActivityLevel] = None
-    ) -> Tuple[Optional[str], UserState, Optional[dict]]:
-        """IN_PLAYING 상태 처리"""
-        probs = self.state_transitions["IN_PLAYING"]
-
-        event = random.choices(
-            list(probs.keys()),
-            weights=list(probs.values())
-        )[0]
-
-        if event == "contents-stop_and_out":
-            # 2개 로그 발생: contents-stop -> access-out
-            return "contents-stop_and_out", UserState.USER_OUT, {
-                "multiple_logs": True,
-                "activity_level": activity_level
-            }
-
-        elif event == "contents-pause":
-            return "contents-pause", UserState.IN_PAUSE, None
-
-        elif event == "continue":
-            # 계속 재생 - 로그 없음
-            return None, UserState.IN_PLAYING, None
-
-        elif event == "contents-stop":
-            return "contents-stop", UserState.CONTENT_PAGE, {
-                "activity_level": activity_level
-            }
-
-        else:
-            return "contents-stop", UserState.CONTENT_PAGE, {
-                "activity_level": activity_level
-            }
-
-    def _handle_in_pause(
-        self,
-        activity_level: Optional[ActivityLevel] = None
-    ) -> Tuple[Optional[str], UserState, Optional[dict]]:
-        """IN_PAUSE 상태 처리"""
-        probs = self.state_transitions["IN_PAUSE"]
-
-        event = random.choices(
-            list(probs.keys()),
-            weights=list(probs.values())
-        )[0]
-
-        if event == "contents-resume":
-            return "contents-resume", UserState.IN_PLAYING, None
-
-        elif event == "contents-stop_and_out":
-            # 2개 로그 발생: contents-stop -> access-out
-            return "contents-stop_and_out", UserState.USER_OUT, {
-                "multiple_logs": True,
-                "activity_level": activity_level
-            }
-
-        elif event == "contents-stop":
-            return "contents-stop", UserState.CONTENT_PAGE, {
-                "activity_level": activity_level
-            }
-
-        else:
-            return "contents-stop", UserState.CONTENT_PAGE, {
-                "activity_level": activity_level
-            }
 
     def get_event_category_code(self, event_type: str) -> int:
         """
