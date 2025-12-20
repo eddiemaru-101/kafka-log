@@ -87,8 +87,8 @@ low_noise = 5        # ±5분
 [user_event_transitions.MAIN_PAGE.subscribed]
 "access-out" = 0.05              # 로그아웃
 "contents-click" = 0.55          # 콘텐츠 클릭
-"subscription-stop" = 0.03       # 구독 해지
-"register-out" = 0.02            # 회원 탈퇴
+"subscription-stop" = 0.0001       # 구독 해지
+"register-out" = 0.0001            # 회원 탈퇴
 "search-search" = 0.25           # 검색
 "support-inquiry" = 0.10         # 고객 문의
 # 합계: 0.05 + 0.55 + 0.03 + 0.02 + 0.25 + 0.10 = 1.00 ✓
@@ -98,7 +98,7 @@ low_noise = 5        # ±5분
 "subscription-start" = 0.30      # 구독 시작
 "contents-click" = 0.40          # 콘텐츠 클릭
 "search-search" = 0.20           # 검색
-"register-out" = 0.02            # 회원 탈퇴
+"register-out" = 0.0001            # 회원 탈퇴
 "support-inquiry" = 0.08         # 고객 문의
 # 합계: 0.30 + 0.40 + 0.20 + 0.02 + 0.08 = 1.00 ✓
 

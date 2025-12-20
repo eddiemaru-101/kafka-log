@@ -11,9 +11,9 @@ import hashlib
 
 # ==================== 설정 ====================
 DB_PATH = "./ott_test.db"
-USER_COUNT = 100
+USER_COUNT = 200000  # 유저 20만명
 CONTENT_COUNT = 200
-SUBSCRIPTION_COUNT = 60
+SUBSCRIPTION_COUNT = 200000  # 구독 20만개 (유저당 최대 1개씩 active 가능)
 USER_LIKES_COUNT = 150
 
 # ==================== DB 연결 ====================
@@ -310,33 +310,33 @@ active_users = [row[0] for row in cursor.fetchall()]
 
 subscription_ids = [f"s_{i}" for i in range(1, 17)]
 
-for _ in range(min(SUBSCRIPTION_COUNT, len(active_users))):
-    user_id = random.choice(active_users)
+# active 유저의 90%가 active 구독을 가지도록 설정
+target_active_subscribers = int(len(active_users) * 0.90)
+subscription_count = 0
+
+print(f"  - 목표: {len(active_users)}명 중 {target_active_subscribers}명이 active 구독자 (90%)")
+
+for user_id in random.sample(active_users, target_active_subscribers):
     subscription_id = random.choice(subscription_ids)
-    
-    # 구독 시작일 (과거 1년 이내)
-    days_ago = random.randint(0, 365)
-    start_date = (datetime.now() - timedelta(days=days_ago)).date()
-    
+
+    # 구독 시작일: 2025-01-01 (로그 생성 시작일 이전)
+    start_date = datetime(2025, 1, 1).date()
+
     # 구독 기간 (subscription_id에서 추출)
     cursor.execute("SELECT subscription_period FROM subscription_plans WHERE subscription_id = ?", (subscription_id,))
     period_months = cursor.fetchone()[0]
     end_date = start_date + timedelta(days=period_months * 30)
-    
-    # 상태 결정
-    if end_date < datetime.now().date():
-        status = random.choice(["expired", "cancelled"])
-    else:
-        status = random.choices(["active", "cancelled"], weights=[80, 20])[0]
-    
-    auto_renew_flag = 1 if status == "active" else 0
-    cancel_reserved_flag = random.choices([0, 1], weights=[90, 10])[0] if status == "active" else 0
+
+    # 90%는 active 상태로 생성
+    status = "active"
+    auto_renew_flag = 1
+    cancel_reserved_flag = 0
     payment_method = random.choice(payment_methods)
-    trial_used_flag = random.choices([0, 1], weights=[70, 30])[0]
-    
+    trial_used_flag = random.choices([0, 1], weights=[60, 40])[0]
+
     created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     updated_at = created_at
-    
+
     cursor.execute("""
         INSERT INTO user_subscriptions (
             user_id, subscription_id, start_date, end_date, status,
@@ -349,7 +349,13 @@ for _ in range(min(SUBSCRIPTION_COUNT, len(active_users))):
         created_at, updated_at
     ))
 
-print(f"✅ user_subscriptions: {SUBSCRIPTION_COUNT}개 삽입")
+    subscription_count += 1
+
+    if subscription_count % 10000 == 0:
+        print(f"  - 진행: {subscription_count:,}/{target_active_subscribers:,}...")
+        conn.commit()
+
+print(f"✅ user_subscriptions: {subscription_count}개 삽입 (active 구독자 비율: 90%)")
 
 # 5. user_likes 데이터 삽입
 cursor.execute("SELECT content_id FROM tmdb_contents")

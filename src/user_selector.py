@@ -37,6 +37,9 @@ class User:
         # 오늘 처음 로그인 여부 (일별 로드 시 False로 초기화됨)
         self.has_logged_in_today = False
 
+        # 패턴 재생 중 차단 시간 (contents-start 패턴 재생 중에는 다른 이벤트 발생 방지)
+        self.blocked_until: Optional[datetime] = None
+
 
 class UserSelector:
     """
@@ -112,10 +115,21 @@ class UserSelector:
                 # daily_users가 비어있으면 신규 생성
                 user = self._create_new_user(signup_date=target_date)
                 return user, UserState.MAIN_PAGE
-            
-            # 여기서 daily_users 풀에서 랜덤 선택
-            user_id = random.choice(list(self.daily_users.keys()))
-            user = self.daily_users[user_id]
+
+            # blocked_until이 설정되지 않았거나 이미 지난 유저만 선택 가능
+            available_users = {
+                uid: u for uid, u in self.daily_users.items()
+                if u.blocked_until is None or u.blocked_until <= timestamp
+            }
+
+            # 선택 가능한 유저가 없으면 신규 생성
+            if not available_users:
+                user = self._create_new_user(signup_date=target_date)
+                return user, UserState.MAIN_PAGE
+
+            # 여기서 available_users 풀에서 랜덤 선택
+            user_id = random.choice(list(available_users.keys()))
+            user = available_users[user_id]
             return user, user.current_state
             # user객체, 인스턴스 상태값
 

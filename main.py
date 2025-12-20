@@ -163,11 +163,20 @@ def run_batch_mode(
 
             # Stage 5: 로그 출력
             if log_event:
-                # log_event가 리스트인 경우 (contents-start 등) 개별 로그로 처리
-                if isinstance(log_event, list):
+                # log_event가 튜플인 경우 (contents-start 패턴: (로그 리스트, 패턴 종료 시간))
+                if isinstance(log_event, tuple):
+                    logs, pattern_end_time = log_event
+                    # 유저를 패턴 종료 시간까지 차단
+                    user.blocked_until = pattern_end_time
+                    for single_log in logs:
+                        log_sink.write(single_log)
+                        log_count += 1
+                # log_event가 리스트인 경우 (하위 호환성 유지)
+                elif isinstance(log_event, list):
                     for single_log in log_event:
                         log_sink.write(single_log)
                         log_count += 1
+                # 일반 로그
                 else:
                     log_sink.write(log_event)
                     log_count += 1
@@ -253,11 +262,20 @@ def run_streaming_mode(
 
             # Stage 5: 로그 출력
             if log_event:
-                # contents-start 패턴의 경우 리스트로 반환됨
-                if isinstance(log_event, list):
+                # log_event가 튜플인 경우 (contents-start 패턴: (로그 리스트, 패턴 종료 시간))
+                if isinstance(log_event, tuple):
+                    logs, pattern_end_time = log_event
+                    # 유저를 패턴 종료 시간까지 차단
+                    user.blocked_until = pattern_end_time
+                    for single_log in logs:
+                        log_sink.write(single_log)
+                        log_count += 1
+                # log_event가 리스트인 경우 (하위 호환성 유지)
+                elif isinstance(log_event, list):
                     for log in log_event:
                         log_sink.write(log)
                         log_count += 1
+                # 일반 로그
                 else:
                     log_sink.write(log_event)
                     log_count += 1
