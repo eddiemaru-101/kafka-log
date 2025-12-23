@@ -91,8 +91,8 @@ class UserEventController:
         Returns:
             (event_type, next_state, additional_data)
         """
-        # 오늘 처음 선택되는 경우 access-in 로그 먼저 발생
-        if hasattr(user, 'has_logged_in_today') and not user.has_logged_in_today:
+        # NOT_LOGGED_IN 상태: 무조건 access-in 발생 후 MAIN_PAGE로 전이
+        if current_state == UserState.NOT_LOGGED_IN:
             user.has_logged_in_today = True
             return "access-in", UserState.MAIN_PAGE, None
 

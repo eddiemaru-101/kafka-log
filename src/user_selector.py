@@ -181,13 +181,13 @@ class UserSelector:
             return
 
         # User 객체 생성 및 daily_users에 추가
-        # 일별 로드 시 모든 유저는 아직 선택되지 않은 상태 (has_logged_in_today = False)
+        # 일별 로드 시 모든 유저는 NOT_LOGGED_IN 상태로 시작
         for user_data in users_data:
             user = User(
                 user_id=user_data["user_id"],
                 is_subscribed=user_data["is_subscribed"],
-                current_state=UserState.MAIN_PAGE,
-                activity_level=self._assign_activity_level()  # 추가
+                current_state=UserState.NOT_LOGGED_IN,  # 로그인 전 상태로 시작
+                activity_level=self._assign_activity_level()
             )
             user.has_logged_in_today = False  # 오늘 아직 로그인 안함
             self.daily_users[user.user_id] = user
@@ -203,8 +203,8 @@ class UserSelector:
         user = User(
             user_id=user_id,
             is_subscribed=False,
-            current_state=UserState.MAIN_PAGE,
-            activity_level=self._assign_activity_level()  # 추가
+            current_state=UserState.NOT_LOGGED_IN,  # 로그인 전 상태로 시작
+            activity_level=self._assign_activity_level()
         )
         user.has_logged_in_today = False  # 신규 유저도 아직 로그인 안함
 

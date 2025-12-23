@@ -8,6 +8,7 @@ class UserState(Enum):
     contents-start 이벤트는 패턴에 따라 모든 로그를 한번에 생성하므로
     IN_START, IN_PLAYING, IN_PAUSE 상태는 존재하지 않음
     """
+    NOT_LOGGED_IN = "NOT_LOGGED_IN"  # 로그인 전 (오늘 첫 로그인 전)
     MAIN_PAGE = "MAIN_PAGE"          # 메인 페이지
     CONTENT_PAGE = "CONTENT_PAGE"    # 콘텐츠 상세 페이지
     USER_OUT = "USER_OUT"            # 로그아웃/세션 종료

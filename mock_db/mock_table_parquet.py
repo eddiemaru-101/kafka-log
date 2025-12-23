@@ -45,7 +45,7 @@ def convert_mock_db_to_parquet(db_path: str, output_dir: str):
 
 if __name__ == "__main__":
     # 설정된 경로 및 DB 파일명
-    DB_FILE = "./ott_test.db"  # 실제 파일 위치에 맞춰 수정 가능
-    SAVE_DIR = "./table_file/"
-    
+    DB_FILE = "../../db/ott_test.db"  # 실제 파일 위치에 맞춰 수정 가능
+    SAVE_DIR = "../../db/table_file/"
+
     convert_mock_db_to_parquet(DB_FILE, SAVE_DIR)

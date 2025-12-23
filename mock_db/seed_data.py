@@ -10,7 +10,7 @@ from pathlib import Path
 import hashlib
 
 # ==================== 설정 ====================
-DB_PATH = "./ott_test.db"
+DB_PATH = "../../db/ott_test.db"
 USER_COUNT = 200000  # 유저 20만명
 CONTENT_COUNT = 200
 SUBSCRIPTION_COUNT = 200000  # 구독 20만개 (유저당 최대 1개씩 active 가능)

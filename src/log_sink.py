@@ -8,7 +8,6 @@ from typing import Dict, Any, Optional, List
 from collections import defaultdict
 import boto3
 from botocore.exceptions import ClientError
-import pandas as pd
 
 
 class LogSink:
@@ -56,21 +55,28 @@ class LogSink:
         # Kinesis 설정
         self.kinesis_stream_name = sink_config.get("kinesis_stream_name", "user-logs-stream")
         self.kinesis_region = sink_config.get("kinesis_region", "ap-northeast-2")
+        self.aws_profile = sink_config.get("aws_profile", None)  # AWS CLI Profile
 
         # Kinesis client 초기화 (kinesis 모드일 때만)
         self.kinesis_client = None
         if self.sink_type == "kinesis":
-            self.kinesis_client = boto3.client('kinesis', region_name=self.kinesis_region)
+            # AWS Profile이 지정된 경우 session 사용
+            if self.aws_profile:
+                session = boto3.Session(profile_name=self.aws_profile)
+                self.kinesis_client = session.client('kinesis', region_name=self.kinesis_region)
+            else:
+                # Profile 미지정 시 기본 인증 방법 사용 (환경 변수, IAM Role 등)
+                self.kinesis_client = boto3.client('kinesis', region_name=self.kinesis_region)
 
         # 시간별 오프셋 카운터 (파일명용)
         self.hourly_offsets: Dict[str, int] = defaultdict(int)
 
-        # 시간별 로그 버퍼 (시간별로 버퍼 분리하여 관리)
-        # key: "YYYY-MM-DD-HH", value: 로그 리스트
-        self.hourly_buffers: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-
-        # 현재 처리 중인 시간대 추적
+        # 현재 시간대 버퍼와 다음 시간대 버퍼 (두 개의 버퍼로 관리)
         self.current_hour_key: Optional[str] = None
+        self.current_hour_buffer: List[Dict[str, Any]] = []
+
+        self.next_hour_key: Optional[str] = None
+        self.next_hour_buffer: List[Dict[str, Any]] = []
 
         print(f"✅ LogSink 초기화 완료")
         print(f"   Mode: {self.mode}")
@@ -89,7 +95,7 @@ class LogSink:
 
     def write(self, log_event: Dict[str, Any]) -> None:
         """
-        로그 쓰기
+        로그 쓰기 (모드에 따라 분기)
 
         Args:
             log_event: 로그 딕셔너리
@@ -97,13 +103,50 @@ class LogSink:
         if log_event is None:
             return
 
-        # Sink Type에 따라 처리
+        if self.mode == "streaming":
+            self.streaming_write(log_event)
+        else:  # batch
+            self.batch_write(log_event)
+
+
+    def streaming_write(self, log_event: Dict[str, Any]) -> None:
+        """
+        Streaming 모드: Kinesis로 즉시 전송 (버퍼링 없음)
+
+        지원: Kinesis만
+        미지원: Local, S3
+
+        Args:
+            log_event: 로그 딕셔너리
+        """
+        if self.sink_type == "kinesis":
+            self._write_to_kinesis(log_event)
+        else:
+            print(f"❌ Streaming 모드는 Kinesis만 지원합니다. (현재 sink_type: {self.sink_type})")
+            return
+
+        # MPS 제어
+        if self.interval > 0:
+            time.sleep(self.interval)
+
+
+    def batch_write(self, log_event: Dict[str, Any]) -> None:
+        """
+        Batch 모드: 버퍼에 모아서 파일로 저장
+
+        지원: Local, S3
+        미지원: Kinesis
+
+        Args:
+            log_event: 로그 딕셔너리
+        """
         if self.sink_type == "local":
             self._write_to_local(log_event)
         elif self.sink_type == "s3":
             self._write_to_s3(log_event)
-        elif self.sink_type == "kinesis":
-            self._write_to_kinesis(log_event)
+        else:
+            print(f"❌ Batch 모드는 Local/S3만 지원합니다. (현재 sink_type: {self.sink_type})")
+            return
 
         # MPS 제어
         if self.interval > 0:
@@ -112,12 +155,15 @@ class LogSink:
 
     def _write_to_local(self, log_event: Dict[str, Any]) -> None:
         """
-        로컬 파일에 Parquet 형식으로 저장
+        로컬 파일에 JSON 형식으로 저장
 
         폴더 구조: {output_dir}/{topic}/year={YYYY}/month={MM}/day={DD}/hour={HH}/
-        파일명: {topic}-{offset(6자리)}-{uuid}.parquet
+        파일명: {topic}-{offset(6자리)}-{uuid}.json
 
-        시간별로 버퍼에 쌓고, 시간이 바뀌면 자동 flush
+        현재 시간대 버퍼와 다음 시간대 버퍼 두 개로 관리
+        - 현재 시간대 로그 → 현재 버퍼에 추가
+        - 다음 시간대 로그 → 다음 버퍼에 추가
+        - 시간대 변경 시 → 현재 버퍼 flush, 다음 버퍼를 현재 버퍼로 승격
         """
         timestamp_str = log_event.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -129,29 +175,49 @@ class LogSink:
 
         hour_key = f"{year}-{month}-{day}-{hour}"
 
-        # 시간이 바뀌면 이전 시간대 로그를 flush
-        if self.current_hour_key is not None and self.current_hour_key != hour_key:
-            self._flush_buffer_to_parquet(self.current_hour_key)
+        # 첫 번째 로그인 경우 초기화
+        if self.current_hour_key is None:
+            self.current_hour_key = hour_key
+            self.current_hour_buffer.append(log_event)
+            return
 
-        # 현재 시간대 업데이트
-        self.current_hour_key = hour_key
+        # 현재 시간대 로그인 경우
+        if hour_key == self.current_hour_key:
+            self.current_hour_buffer.append(log_event)
 
-        # 시간별 버퍼에 로그 추가
-        self.hourly_buffers[hour_key].append(log_event)
+        # 다음 시간대 로그인 경우
+        elif self.next_hour_key is None or hour_key == self.next_hour_key:
+            if self.next_hour_key is None:
+                self.next_hour_key = hour_key
+            self.next_hour_buffer.append(log_event)
+
+        # 새로운 시간대로 전환 (현재 → 다음 → 새로운)
+        else:
+            # 1. 현재 시간대 버퍼를 flush
+            self._flush_buffer_to_json(self.current_hour_key, self.current_hour_buffer)
+
+            # 2. 다음 시간대 버퍼를 현재 시간대로 승격
+            self.current_hour_key = self.next_hour_key
+            self.current_hour_buffer = self.next_hour_buffer
+
+            # 3. 새로운 다음 시간대 설정
+            self.next_hour_key = hour_key
+            self.next_hour_buffer = [log_event]
 
 
-    def _flush_buffer_to_parquet(self, hour_key: str) -> None:
+    def _flush_buffer_to_json(self, hour_key: str, buffer: List[Dict[str, Any]]) -> None:
         """
-        특정 시간대 버퍼에 쌓인 로그를 Parquet 파일로 저장
+        특정 시간대 버퍼에 쌓인 로그를 JSON 파일로 저장
 
         Args:
             hour_key: "YYYY-MM-DD-HH" 형식의 시간 키
+            buffer: 저장할 로그 리스트
         """
-        if hour_key not in self.hourly_buffers or not self.hourly_buffers[hour_key]:
+        if not buffer:
             return
 
         # 시간순으로 정렬
-        sorted_logs = sorted(self.hourly_buffers[hour_key], key=lambda x: x.get("timestamp", ""))
+        sorted_logs = sorted(buffer, key=lambda x: x.get("timestamp", ""))
 
         # 첫 번째 로그의 타임스탬프로 경로 결정
         first_log = sorted_logs[0]
@@ -167,20 +233,20 @@ class LogSink:
         dir_path = Path(self.output_dir) / self.topic / f"year={year}" / f"month={month}" / f"day={day}" / f"hour={hour}"
         dir_path.mkdir(parents=True, exist_ok=True)
 
-        # 파일명 생성: {topic}-{offset(6자리)}-{uuid}.parquet
+        # 파일명 생성: {topic}-{offset(6자리)}-{uuid}.json
         offset = self.hourly_offsets[hour_key]
         file_uuid = str(uuid.uuid4())[:6]  # 짧은 UUID
-        filename = f"{self.topic}-{offset:06d}-{file_uuid}.parquet"
+        filename = f"{self.topic}-{offset:06d}-{file_uuid}.json"
         file_path = dir_path / filename
 
         # detail에서 null 값 제거
         def remove_nulls(detail: dict) -> dict:
             return {k: v for k, v in detail.items() if v is not None}
 
-        # DataFrame 생성
-        df_data = []
+        # JSON 데이터 생성
+        json_data = []
         for log in sorted_logs:
-            df_data.append({
+            json_data.append({
                 "timestamp": log["timestamp"],
                 "user_id": log["user_id"],
                 "event_category": log["event_category"],
@@ -188,15 +254,13 @@ class LogSink:
                 "detail": remove_nulls(log["detail"])
             })
 
-        df = pd.DataFrame(df_data)
+        # JSON 파일로 저장
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=2)
 
-        # Parquet 파일로 저장
-        df.to_parquet(str(file_path), engine='pyarrow', compression='snappy', index=False)
+        print(f"💾 JSON 저장: {filename} ({len(sorted_logs)}개 로그)")
 
-        print(f"💾 Parquet 저장: {filename} ({len(sorted_logs)}개 로그)")
-
-        # 버퍼 초기화 및 offset 증가
-        del self.hourly_buffers[hour_key]
+        # offset 증가
         self.hourly_offsets[hour_key] += 1
 
 
@@ -241,7 +305,7 @@ class LogSink:
             )
 
             # 성공 로그 (선택적)
-            # print(f"✅ Kinesis 전송 성공: ShardId={response['ShardId']}, SequenceNumber={response['SequenceNumber']}")
+            print(f"✅ Kinesis 전송 성공: ShardId={response['ShardId']}, SequenceNumber={response['SequenceNumber']}")
 
         except ClientError as e:
             print(f"❌ Kinesis 전송 실패: {e}")
@@ -251,8 +315,12 @@ class LogSink:
 
     def close(self) -> None:
         """리소스 정리 및 마지막 버퍼 flush"""
-        # 모든 시간대 버퍼를 parquet로 저장
-        for hour_key in list(self.hourly_buffers.keys()):
-            self._flush_buffer_to_parquet(hour_key)
+        # 현재 시간대 버퍼 flush
+        if self.current_hour_key is not None and self.current_hour_buffer:
+            self._flush_buffer_to_json(self.current_hour_key, self.current_hour_buffer)
+
+        # 다음 시간대 버퍼 flush
+        if self.next_hour_key is not None and self.next_hour_buffer:
+            self._flush_buffer_to_json(self.next_hour_key, self.next_hour_buffer)
 
         print("✅ LogSink 종료")
