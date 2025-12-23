@@ -209,8 +209,8 @@ for i in range(1, CONTENT_COUNT + 1):
         title = random.choice(tv_titles) + f" ({i})"
         runtime = None
         episode_runtime = random.randint(30, 70)
-        number_of_seasons = random.randint(1, 8)
-        number_of_episodes = number_of_seasons * random.randint(6, 16)
+        number_of_seasons = random.randint(1, 3)
+        number_of_episodes = random.randint(1, 10)
     
     tmdb_id = 100000 + i
     content_id = f"{content_type}_{tmdb_id}"
