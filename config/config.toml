@@ -3,9 +3,9 @@
 # ============================================================
 [global]
 timezone = "Asia/Seoul"
-generation_mode = "batch"  # "batch" or "streaming"
+generation_mode = "streaming"  # "batch" or "streaming"
 target_months = ["2025-02"]
-target_mps = 0  # 0이면 제한 없음
+target_mps = 1  # 0이면 제한 없음
 
 
 # ============================================================
@@ -16,15 +16,15 @@ target_mps = 0  # 0이면 제한 없음
 db_type = "sqlite"
 
 # SQLite 설정 (db_type = "sqlite"일 때 사용)
-sqlite_db_path = "mock_db/ott_test.db"
+sqlite_db_path = "../db/ott_test.db"
 
 
 # ============================================================
 # [date_generator] - LogDateGenerator 객체에서 사용
 # ============================================================
 [date_generator]
-dau = 1200
-logs_per_user_per_day = 100
+dau = 10
+logs_per_user_per_day = 10
 
 # 요일별 로그 발생 비율 (합계 = 1.0)
 [date_generator.day_of_week_ratio]
@@ -317,7 +317,7 @@ inquiry_samples = [
 # ============================================================
 [log_sink]
 # Sink 타입: "local", "s3", "kinesis"
-sink_type = "local"
+sink_type = "kinesis"
 
 # 로컬 저장 설정
 output_dir = "../output"

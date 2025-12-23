@@ -227,7 +227,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 1,  # access
             "event_type": 1,  # in
@@ -246,7 +246,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 1,  # access
             "event_type": 2,  # out
@@ -285,7 +285,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 2,  # contents
             "event_type": 3,  # click
@@ -350,7 +350,7 @@ class LogContents:
         }
 
         play_log = {
-            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 2,
             "event_type": 4,  # start
@@ -376,7 +376,7 @@ class LogContents:
             }
 
             pause_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
                 "user_id": user.user_id,
                 "event_category": 2,
                 "event_type": 6,  # pause
@@ -401,7 +401,7 @@ class LogContents:
             }
 
             pause_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
                 "user_id": user.user_id,
                 "event_category": 2,
                 "event_type": 6,  # pause
@@ -422,7 +422,7 @@ class LogContents:
             }
 
             resume_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
                 "user_id": user.user_id,
                 "event_category": 2,
                 "event_type": 7,  # resume
@@ -448,7 +448,7 @@ class LogContents:
             }
 
             pause_log1 = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
                 "user_id": user.user_id,
                 "event_category": 2,
                 "event_type": 6,  # pause
@@ -468,7 +468,7 @@ class LogContents:
             }
 
             resume_log = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
                 "user_id": user.user_id,
                 "event_category": 2,
                 "event_type": 7,  # resume
@@ -489,7 +489,7 @@ class LogContents:
             }
 
             pause_log2 = {
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
                 "user_id": user.user_id,
                 "event_category": 2,
                 "event_type": 6,  # pause
@@ -510,7 +510,7 @@ class LogContents:
         }
 
         stop_log = {
-            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 2,
             "event_type": 5,  # stop
@@ -543,7 +543,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 2,  # contents
             "event_type": 8,  # like_on
@@ -572,7 +572,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 2,  # contents
             "event_type": 9,  # like_off
@@ -605,7 +605,7 @@ class LogContents:
         }
 
         log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 3,  # review
             "event_type": 10,  # review
@@ -640,7 +640,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 4,  # subscription
             "event_type": 4,  # start
@@ -661,7 +661,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 4,  # subscription
             "event_type": 5,  # stop
@@ -688,7 +688,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 5,  # register
             "event_type": 1,  # in
@@ -718,7 +718,7 @@ class LogContents:
         }
 
         log = {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 5,  # register
             "event_type": 2,  # out
@@ -739,7 +739,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 6,  # search
             "event_type": 11,  # search
@@ -768,7 +768,7 @@ class LogContents:
         }
 
         return {
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "user_id": user.user_id,
             "event_category": 7,  # support
             "event_type": 12,  # inquiry
