@@ -635,6 +635,12 @@ class LogContents:
         start_id, end_id = type_to_id_range.get(selected_type, (1, 4))
         subscription_id = f"s_{random.randint(start_id, end_id)}"
 
+        # DB 업데이트: subscription_status를 'active'로 변경
+        self.db_client.activate_subscription(user.user_id, subscription_id)
+
+        # User 객체도 업데이트
+        user.is_subscribed = True
+
         detail: SubscriptionStartDetail = {
             "subscription_id": subscription_id
         }
@@ -650,14 +656,17 @@ class LogContents:
 
     def _generate_subscription_stop(self, user, timestamp: datetime) -> Dict[str, Any]:
         """subscription-stop 로그 생성"""
-        # 임의의 구독 상품 ID (실제로는 유저의 현재 구독 조회 필요)
-        subscription = self.db_client.get_random_subscription()
+        # subscription_plans 테이블이 삭제되어 하드코딩된 ID 사용
+        subscription_id = f"s_{random.randint(1, 16)}"
 
-        if not subscription:
-            subscription = {"subscription_id": "s_1"}
+        # DB 업데이트: subscription_status를 'expired' 또는 'cancelled'로 랜덤 변경
+        self.db_client.deactivate_subscription(user.user_id)
+
+        # User 객체도 업데이트
+        user.is_subscribed = False
 
         detail: SubscriptionStopDetail = {
-            "subscription_id": subscription["subscription_id"]
+            "subscription_id": subscription_id
         }
 
         return {

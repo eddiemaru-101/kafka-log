@@ -85,7 +85,11 @@ cursor.execute("""
         device_last_used TEXT,
         push_opt_in INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        subscription_status TEXT,
+        subscription_start_date TEXT,
+        subscription_end_date TEXT,
+        subscription_id TEXT
     )
 """)
 
@@ -94,33 +98,7 @@ cursor.execute("CREATE INDEX IF NOT EXISTS idx_country ON users(country)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_signup_date ON users(signup_date)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_account_status ON users(account_status)")
 
-# 4. user_subscriptions 테이블
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        subscription_id TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        end_date TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active',
-        auto_renew_flag INTEGER NOT NULL DEFAULT 1,
-        cancel_reserved_flag INTEGER NOT NULL DEFAULT 0,
-        payment_method TEXT NOT NULL,
-        trial_used_flag INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(user_id),
-        FOREIGN KEY (subscription_id) REFERENCES subscription_plans(subscription_id)
-    )
-""")
-
-# 인덱스 생성
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON user_subscriptions(user_id)")
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_subscription_id ON user_subscriptions(subscription_id)")
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON user_subscriptions(status)")
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_start_date ON user_subscriptions(start_date)")
-
-# 5. user_likes 테이블
+# 4. user_likes 테이블
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS user_likes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,118 +224,89 @@ print(f"✅ tmdb_contents: {CONTENT_COUNT}개 삽입")
 korean_surnames = ["김", "이", "박", "최", "정", "강", "조", "윤", "장", "임"]
 korean_given_names = ["민준", "서준", "도윤", "예준", "시우", "지호", "준서", "우진", "수현", "지민",
                        "서연", "민서", "지우", "서윤", "지유", "채원", "하은", "예은", "수아", "윤서"]
-korean_cities = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", 
+korean_cities = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원",
                  "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
 devices = ["mobile", "tablet", "desktop", "tv", "console"]
+subscription_ids = [f"s_{i}" for i in range(1, 17)]
 
 for i in range(1, USER_COUNT + 1):
     email = f"user{i}_{random.randint(1000, 9999)}@ottservice.com"
-    
+
     # 간단한 해시 (실제로는 bcrypt 등을 사용)
     password_hash = hashlib.sha256(f"password{i}".encode()).hexdigest()
-    
+
     name = random.choice(korean_surnames) + random.choice(korean_given_names)
     gender = random.randint(0, 2)  # 0=남, 1=여, 2=기타
-    
+
     birth_year = random.randint(1960, 2005)
     birth_date = date(birth_year, random.randint(1, 12), random.randint(1, 28))
-    
+
     country = "KR"
     city = random.choice(korean_cities)
-    
+
     signup_year = random.randint(2020, 2024)
     signup_date = date(signup_year, random.randint(1, 12), random.randint(1, 28))
-    
+
     account_status = random.choices(
         ["active", "suspended", "deleted"],
         weights=[85, 5, 10]
     )[0]
-    
+
     is_adult_verified = 1 if (datetime.now().year - birth_year) >= 19 else 0
-    
+
     last_login_date = None
     if account_status == "active" and random.random() < 0.8:
         days_ago = random.randint(0, 30)
         last_login_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d %H:%M:%S')
-    
+
     device_last_used = random.choice(devices) if last_login_date else None
     push_opt_in = random.choices([0, 1], weights=[30, 70])[0]
-    
+
     created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     updated_at = last_login_date if last_login_date else created_at
-    
+
+    # subscription 관련 컬럼 (active 유저의 90%가 구독중)
+    subscription_status = None
+    subscription_start_date = None
+    subscription_end_date = None
+    subscription_id = None
+
+    if account_status == "active" and random.random() < 0.90:
+        # 구독 상태 랜덤 선택 (active 80%, expired 10%, cancelled 10%)
+        subscription_status = random.choices(
+            ["active", "expired", "cancelled"],
+            weights=[80, 10, 10]
+        )[0]
+
+        subscription_id = random.choice(subscription_ids)
+
+        # 구독 시작일: 과거 1~6개월 전
+        days_ago = random.randint(30, 180)
+        subscription_start_date = (datetime.now() - timedelta(days=days_ago)).date().isoformat()
+
+        # 구독 종료일: 시작일로부터 1개월 후
+        start_date_obj = datetime.strptime(subscription_start_date, '%Y-%m-%d').date()
+        subscription_end_date = (start_date_obj + timedelta(days=30)).isoformat()
+
     cursor.execute("""
         INSERT INTO users (
             email, password_hash, name, gender, birth_date, country, city,
             signup_date, account_status, is_adult_verified, last_login_date,
-            device_last_used, push_opt_in, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            device_last_used, push_opt_in, created_at, updated_at,
+            subscription_status, subscription_start_date, subscription_end_date, subscription_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         email, password_hash, name, gender, birth_date.isoformat(), country, city,
         signup_date.isoformat(), account_status, is_adult_verified, last_login_date,
-        device_last_used, push_opt_in, created_at, updated_at
+        device_last_used, push_opt_in, created_at, updated_at,
+        subscription_status, subscription_start_date, subscription_end_date, subscription_id
     ))
 
-print(f"✅ users: {USER_COUNT}개 삽입")
+print(f"✅ users: {USER_COUNT}개 삽입 (90%가 구독 정보 포함)")
 
-# 4. user_subscriptions 데이터 삽입
-payment_methods = ["card", "mobile_pay", "account_transfer"]
-subscription_statuses = ["active", "cancelled", "expired"]
-
-# active 유저만 구독 생성
+# 4. user_likes 데이터 삽입
 cursor.execute("SELECT user_id FROM users WHERE account_status = 'active'")
 active_users = [row[0] for row in cursor.fetchall()]
-
-subscription_ids = [f"s_{i}" for i in range(1, 17)]
-
-# active 유저의 90%가 active 구독을 가지도록 설정
-target_active_subscribers = int(len(active_users) * 0.90)
-subscription_count = 0
-
-print(f"  - 목표: {len(active_users)}명 중 {target_active_subscribers}명이 active 구독자 (90%)")
-
-for user_id in random.sample(active_users, target_active_subscribers):
-    subscription_id = random.choice(subscription_ids)
-
-    # 구독 시작일: 2025-01-01 (로그 생성 시작일 이전)
-    start_date = datetime(2025, 1, 1).date()
-
-    # 구독 기간 (subscription_id에서 추출)
-    cursor.execute("SELECT subscription_period FROM subscription_plans WHERE subscription_id = ?", (subscription_id,))
-    period_months = cursor.fetchone()[0]
-    end_date = start_date + timedelta(days=period_months * 30)
-
-    # 90%는 active 상태로 생성
-    status = "active"
-    auto_renew_flag = 1
-    cancel_reserved_flag = 0
-    payment_method = random.choice(payment_methods)
-    trial_used_flag = random.choices([0, 1], weights=[60, 40])[0]
-
-    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    updated_at = created_at
-
-    cursor.execute("""
-        INSERT INTO user_subscriptions (
-            user_id, subscription_id, start_date, end_date, status,
-            auto_renew_flag, cancel_reserved_flag, payment_method, trial_used_flag,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        user_id, subscription_id, start_date.isoformat(), end_date.isoformat(), status,
-        auto_renew_flag, cancel_reserved_flag, payment_method, trial_used_flag,
-        created_at, updated_at
-    ))
-
-    subscription_count += 1
-
-    if subscription_count % 10000 == 0:
-        print(f"  - 진행: {subscription_count:,}/{target_active_subscribers:,}...")
-        conn.commit()
-
-print(f"✅ user_subscriptions: {subscription_count}개 삽입 (active 구독자 비율: 90%)")
-
-# 5. user_likes 데이터 삽입
 cursor.execute("SELECT content_id FROM tmdb_contents")
 all_content_ids = [row[0] for row in cursor.fetchall()]
 
@@ -403,8 +352,8 @@ print(f"  - tmdb_contents: {cursor.fetchone()[0]}개")
 cursor.execute("SELECT COUNT(*) FROM users WHERE account_status = 'active'")
 print(f"  - active users: {cursor.fetchone()[0]}개")
 
-cursor.execute("SELECT COUNT(*) FROM user_subscriptions WHERE status = 'active'")
-print(f"  - active subscriptions: {cursor.fetchone()[0]}개")
+cursor.execute("SELECT COUNT(*) FROM users WHERE subscription_status = 'active'")
+print(f"  - users with active subscription: {cursor.fetchone()[0]}개")
 
 cursor.execute("SELECT COUNT(*) FROM user_likes")
 print(f"  - user_likes: {cursor.fetchone()[0]}개")

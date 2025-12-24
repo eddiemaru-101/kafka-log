@@ -3,9 +3,9 @@
 # ============================================================
 [global]
 timezone = "Asia/Seoul"
-generation_mode = "streaming"  # "batch" or "streaming"
-target_months = ["2025-02"]
-target_mps = 1  # 0이면 제한 없음
+generation_mode = "batch"  # "batch" or "streaming"
+target_months = ["2025-09", "2025-10", "2025-11"] # 3달치생성시 ["2025-09", "2025-10", "2025-11"]
+target_mps = 0  # 0이면 제한 없음
 
 
 # ============================================================
@@ -13,7 +13,7 @@ target_mps = 1  # 0이면 제한 없음
 # ============================================================
 [database]
 # DB 타입 선택: "mysql" (AWS RDS) 또는 "sqlite" (Mock DB)
-db_type = "sqlite"
+db_type = "mysql"
 
 # SQLite 설정 (db_type = "sqlite"일 때 사용)
 sqlite_db_path = "../db/ott_test.db"
@@ -23,8 +23,8 @@ sqlite_db_path = "../db/ott_test.db"
 # [date_generator] - LogDateGenerator 객체에서 사용
 # ============================================================
 [date_generator]
-dau = 10
-logs_per_user_per_day = 10
+dau = 1200
+logs_per_user_per_day = 50
 
 # 요일별 로그 발생 비율 (합계 = 1.0)
 [date_generator.day_of_week_ratio]
@@ -38,14 +38,14 @@ sunday = 0.18
 
 # 시간대별 로그 발생 비율 (합계 = 1.0)
 [date_generator.hour_distribution]
-"0-6" = 0.05      # 새벽 (5%)
-"6-9" = 0.10      # 출근 시간 (10%)
-"9-12" = 0.15     # 오전 (15%)
-"12-14" = 0.10    # 점심 시간 (10%)
-"14-18" = 0.10    # 오후 (10%)
-"18-22" = 0.35    # 저녁 시간대 - 피크 타임 (35%)
-"22-24" = 0.15    # 밤 (15%)
-
+"0-6"   = 0.00048   # 새벽
+"6-9"   = 0.09520   # 출근 시간
+"9-12"  = 0.14278   # 오전
+"12-14" = 0.09520   # 점심 시간
+"14-18" = 0.09520   # 오후
+"18-22" = 0.33318   # 저녁 피크
+"22-24" = 0.14278   # 밤
+# 합계 ≈ 1.00000
 
 # ============================================================
 # [user] - UserSelector 객체에서 사용
@@ -87,7 +87,7 @@ low_noise = 5       # ±5분
 [user_event_transitions.MAIN_PAGE.subscribed]
 "access-out" = 0.05              # 로그아웃
 "contents-click" = 0.55          # 콘텐츠 클릭
-"subscription-stop" = 0.0001       # 구독 해지
+"subscription-stop" = 0.05       # 구독 해지
 "register-out" = 0.0001            # 회원 탈퇴
 "search-search" = 0.25           # 검색
 "support-inquiry" = 0.10         # 고객 문의
@@ -317,7 +317,7 @@ inquiry_samples = [
 # ============================================================
 [log_sink]
 # Sink 타입: "local", "s3", "kinesis"
-sink_type = "kinesis"
+sink_type = "local"
 
 # 로컬 저장 설정
 output_dir = "../output"

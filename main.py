@@ -36,6 +36,7 @@ def main():
     print("\n📦 모듈 초기화 중...\n")
 
     db_client = DBClient(config)
+    db_client.load_contents_cache()  # 콘텐츠 캐시 로드
     print("✅ DB Client 초기화 완료")
 
     date_generator = LogDateGenerator(config)
@@ -155,7 +156,8 @@ def run_batch_mode(
             log_event = log_contents.generate(
                 user=user,
                 event_type=event_type,
-                timestamp=timestamp
+                timestamp=timestamp,
+                additional_data=additional_data
             )
 
             # 상태 업데이트

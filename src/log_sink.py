@@ -166,7 +166,14 @@ class LogSink:
         - 시간대 변경 시 → 현재 버퍼 flush, 다음 버퍼를 현재 버퍼로 승격
         """
         timestamp_str = log_event.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+        # ISO 8601 형식 지원 (2025-09-01T01:18:20.000Z)
+        if "T" in timestamp_str:
+            # 밀리초 제거 후 파싱
+            timestamp_str_clean = timestamp_str.replace("Z", "").split(".")[0]
+            timestamp = datetime.strptime(timestamp_str_clean, "%Y-%m-%dT%H:%M:%S")
+        else:
+            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
         year = timestamp.strftime("%Y")
         month = timestamp.strftime("%m")
@@ -222,7 +229,14 @@ class LogSink:
         # 첫 번째 로그의 타임스탬프로 경로 결정
         first_log = sorted_logs[0]
         timestamp_str = first_log.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+        # ISO 8601 형식 지원 (2025-09-01T01:18:20.000Z)
+        if "T" in timestamp_str:
+            # 밀리초 제거 후 파싱
+            timestamp_str_clean = timestamp_str.replace("Z", "").split(".")[0]
+            timestamp = datetime.strptime(timestamp_str_clean, "%Y-%m-%dT%H:%M:%S")
+        else:
+            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
         year = timestamp.strftime("%Y")
         month = timestamp.strftime("%m")
@@ -243,20 +257,19 @@ class LogSink:
         def remove_nulls(detail: dict) -> dict:
             return {k: v for k, v in detail.items() if v is not None}
 
-        # JSON 데이터 생성
-        json_data = []
-        for log in sorted_logs:
-            json_data.append({
-                "timestamp": log["timestamp"],
-                "user_id": log["user_id"],
-                "event_category": log["event_category"],
-                "event_type": log["event_type"],
-                "detail": remove_nulls(log["detail"])
-            })
-
-        # JSON 파일로 저장
+        # NDJSON (Newline Delimited JSON) 형식으로 저장
+        # Kinesis에서 처리하기 위해 각 로그를 한 줄씩 저장
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            for log in sorted_logs:
+                log_entry = {
+                    "timestamp": log["timestamp"],
+                    "user_id": log["user_id"],
+                    "event_category": log["event_category"],
+                    "event_type": log["event_type"],
+                    "detail": remove_nulls(log["detail"])
+                }
+                # 각 로그를 한 줄로 작성 (줄바꿈으로 구분)
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
 
         print(f"💾 JSON 저장: {filename} ({len(sorted_logs)}개 로그)")
 

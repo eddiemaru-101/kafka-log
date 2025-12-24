@@ -70,8 +70,12 @@ class DBClient:
 
         else:
             raise ValueError(f"지원하지 않는 DB_TYPE: {self.db_type}. 'mysql' 또는 'sqlite'를 사용하세요.")
-    
-    
+
+        # 콘텐츠 캐시 초기화
+        self.contents_cache = None
+        self.contents_weights = None
+
+
     def _create_mysql_pool(self):
         """MySQL 커넥션 풀 생성"""
         try:
@@ -196,17 +200,12 @@ class DBClient:
                 cursor = conn.cursor()
                 random_func = "RANDOM()"
 
-            # 랜덤 유저 조회
+            # 랜덤 유저 조회 (subscription_status 컬럼 기반으로 구독 여부 판단)
             query = f"""
                 SELECT
                     u.user_id,
                     CASE
-                        WHEN EXISTS (
-                            SELECT 1
-                            FROM user_subscriptions us
-                            WHERE us.user_id = u.user_id
-                            AND us.status = 'active'
-                        ) THEN 1
+                        WHEN u.subscription_status = 'active' THEN 1
                         ELSE 0
                     END AS is_subscribed
                 FROM users u
@@ -230,30 +229,66 @@ class DBClient:
             # {'user_id': 33109, 'is_subscribed': 1}]
     
     
-    def update_user_subscription(self, user_id: int, is_subscribed: bool):
+    def activate_subscription(self, user_id: int, subscription_id: str):
         """
-        유저 구독 상태 업데이트
+        유저 구독 활성화 (subscription-start 로그 발생 시 호출)
+        users 테이블의 subscription_status를 'active'로 변경
 
         Args:
             user_id: 유저 ID
-            is_subscribed: 구독 여부 (True/False)
+            subscription_id: 구독 상품 ID (예: "s_1")
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             placeholder = "%s" if self.db_type == "mysql" else "?"
 
-            if is_subscribed:
-                # 구독 활성화: user_subscriptions 테이블에 INSERT 또는 UPDATE
-                # (실제로는 subscription_id, start_date, end_date 등 필요)
-                pass
-            else:
-                # 구독 해지: status를 'cancelled'로 변경
-                query = f"""
-                    UPDATE user_subscriptions
-                    SET status = 'cancelled'
-                    WHERE user_id = {placeholder} AND status = 'active'
-                """
-                cursor.execute(query, (user_id,))
+            # subscription_status를 'active'로 업데이트
+            # subscription_start_date는 오늘, subscription_end_date는 1개월 후, subscription_id도 저장
+            query = f"""
+                UPDATE users
+                SET subscription_status = 'active',
+                    subscription_start_date = CURRENT_DATE,
+                    subscription_end_date = DATE_ADD(CURRENT_DATE, INTERVAL 1 MONTH),
+                    subscription_id = {placeholder}
+                WHERE user_id = {placeholder}
+            """ if self.db_type == "mysql" else f"""
+                UPDATE users
+                SET subscription_status = 'active',
+                    subscription_start_date = DATE('now'),
+                    subscription_end_date = DATE('now', '+1 month'),
+                    subscription_id = {placeholder}
+                WHERE user_id = {placeholder}
+            """
+
+            cursor.execute(query, (subscription_id, user_id))
+
+            if self.db_type == "sqlite":
+                conn.commit()
+
+            cursor.close()
+
+
+    def deactivate_subscription(self, user_id: int):
+        """
+        유저 구독 해지 (subscription-stop 로그 발생 시 호출)
+        users 테이블의 subscription_status를 'expired' 또는 'cancelled'로 랜덤 변경
+
+        Args:
+            user_id: 유저 ID
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholder = "%s" if self.db_type == "mysql" else "?"
+
+            # 'expired' 또는 'cancelled' 랜덤 선택
+            new_status = random.choice(['expired', 'cancelled'])
+
+            query = f"""
+                UPDATE users
+                SET subscription_status = {placeholder}
+                WHERE user_id = {placeholder}
+            """
+            cursor.execute(query, (new_status, user_id))
 
             if self.db_type == "sqlite":
                 conn.commit()
@@ -286,31 +321,26 @@ class DBClient:
     
     
     # ========== 콘텐츠 관련 메서드 ==========
-    
-    def get_random_content(self) -> Optional[Dict]:
+
+    def load_contents_cache(self):
         """
-        인기도 기반 가중치 콘텐츠 1개 조회
-
-        tmdb_contents 테이블에서 인기도(popularity) 내림차순 상위 100개 중
-        인기도를 가중치로 사용하여 1개 선택
-
-        Returns:
-            콘텐츠 정보 dict {"contents_id": "movie_123", "contents_type": "movie", ...}
+        인기도 상위 50개 콘텐츠를 DB에서 조회하여 캐시에 저장
+        초기화 시 한 번만 호출하여 성능 최적화
         """
         with self.get_connection() as conn:
             if self.db_type == "mysql":
                 cursor = conn.cursor(dictionary=True)
-                table_name = "contents"
+                table_name = "tmdb_contents"
             else:  # sqlite
                 cursor = conn.cursor()
                 table_name = "tmdb_contents"
 
-            # 인기도 상위 100개 조회
+            # 인기도 상위 50개 조회 (에피소드 정보 포함)
             query = f"""
-                SELECT content_id as contents_id, content_type as contents_type, title, genre_names as genre, runtime, popularity
+                SELECT content_id as contents_id, content_type as contents_type, title, genre_names as genre, runtime, popularity, number_of_episodes
                 FROM {table_name}
                 ORDER BY popularity DESC
-                LIMIT 100
+                LIMIT 50
             """
             cursor.execute(query)
 
@@ -322,22 +352,38 @@ class DBClient:
 
             cursor.close()
 
-            if not contents:
-                return None
+            if contents:
+                # popularity를 float로 변환하여 가중치 리스트 생성
+                self.contents_cache = contents
+                self.contents_weights = [float(c['popularity']) for c in contents]
+                print(f"✅ 콘텐츠 캐시 로드 완료 ({len(contents)}개)")
+            else:
+                print("⚠️  콘텐츠가 없어 캐시를 생성하지 못했습니다.")
 
-            # 인기도를 가중치로 사용하여 1개 선택
-            popularities = [c['popularity'] for c in contents]
-            selected = random.choices(contents, weights=popularities, k=1)[0]
+    def get_random_content(self) -> Optional[Dict]:
+        """
+        캐시된 콘텐츠 중에서 인기도 기반 가중치로 1개 선택
 
-            # popularity 필드 제거 (로그에 불필요)
-            selected.pop('popularity', None)
+        Returns:
+            콘텐츠 정보 dict {"contents_id": "movie_123", "contents_type": "movie", ...}
+        """
+        # 캐시가 없으면 None 반환
+        if not self.contents_cache or not self.contents_weights:
+            return None
 
-            return selected
+        # 캐시에서 인기도 가중치로 1개 선택
+        selected = random.choices(self.contents_cache, weights=self.contents_weights, k=1)[0]
+
+        # popularity 필드 제거하여 복사본 반환 (원본 캐시 보호)
+        result = selected.copy()
+        result.pop('popularity', None)
+
+        return result
     
     
     def get_content_by_id(self, contents_id: str) -> Optional[Dict]:
         """
-        특정 콘텐츠 조회
+        특정 콘텐츠 조회 (캐시에서 검색)
 
         Args:
             contents_id: 콘텐츠 ID (예: "movie_123", "tv_456")
@@ -345,112 +391,41 @@ class DBClient:
         Returns:
             콘텐츠 정보 dict
         """
-        with self.get_connection() as conn:
-            if self.db_type == "mysql":
-                cursor = conn.cursor(dictionary=True)
-                placeholder = "%s"
-                table_name = "contents"
-            else:  # sqlite
-                cursor = conn.cursor()
-                placeholder = "?"
-                table_name = "tmdb_contents"
+        # 캐시에서 검색
+        if self.contents_cache:
+            for content in self.contents_cache:
+                if content.get('contents_id') == contents_id:
+                    # popularity 제거한 복사본 반환
+                    result = content.copy()
+                    result.pop('popularity', None)
+                    return result
 
-            query = f"""
-                SELECT content_id as contents_id, content_type as contents_type, title, genre_names as genre, runtime
-                FROM {table_name}
-                WHERE content_id = {placeholder}
-            """
-            cursor.execute(query, (contents_id,))
-
-            if self.db_type == "mysql":
-                content = cursor.fetchone()
-            else:  # sqlite
-                row = cursor.fetchone()
-                content = dict(row) if row else None
-
-            cursor.close()
-
-            return content
+        # 캐시에 없으면 None 반환
+        return None
     
     
     def get_episodes_by_content_id(self, contents_id: str) -> List[Dict]:
         """
-        episodes 테이블 대신 tmdb_contents의 정보를 기반으로 
-        가상의 에피소드 리스트를 동적 생성하여 반환
+        캐시에서 콘텐츠 정보를 찾아 에피소드 리스트를 동적 생성하여 반환
         """
-        with self.get_connection() as conn:
-            if self.db_type == "mysql":
-                cursor = conn.cursor(dictionary=True)
-                placeholder = "%s"
-                table_name = "tmdb_contents"
-            else:  # sqlite
-                cursor = conn.cursor()
-                placeholder = "?"
-                table_name = "tmdb_contents"
+        # 캐시에서 콘텐츠 찾기
+        if self.contents_cache:
+            for content in self.contents_cache:
+                if content.get('contents_id') == contents_id:
+                    # number_of_episodes가 없거나 0이면 빈 리스트 반환
+                    num_episodes = content.get('number_of_episodes')
+                    if not num_episodes:
+                        return []
 
-            # 1. 해당 콘텐츠의 총 에피소드 수와 제목 조회
-            query = f"""
-                SELECT title, number_of_episodes, number_of_seasons
-                FROM {table_name}
-                WHERE content_id = {placeholder}
-            """
-            cursor.execute(query, (contents_id,))
+                    # episode_id 리스트 생성
+                    episodes = [{"episode_id": f"ep_{i:02d}"} for i in range(1, int(num_episodes) + 1)]
+                    return episodes
 
-            if self.db_type == "mysql":
-                row = cursor.fetchone()
-            else:
-                res = cursor.fetchone()
-                row = dict(res) if res else None
-            
-            cursor.close()
-
-            # 2. 데이터가 없거나 TV 시리즈가 아닌 경우(에피소드 수 0) 빈 리스트 반환
-            if not row or not row.get('number_of_episodes'):
-                return []
-
-            # 3. number_of_episodes 수만큼 episode_id 리스트 생성
-            num_episodes = int(row['number_of_episodes'])
-            episodes = [{"episode_id": f"ep_{i:02d}"} for i in range(1, num_episodes + 1)]
-
-            return episodes
+        # 캐시에 없으면 빈 리스트 반환
+        return []
     
     
-    # ========== 구독 관련 메서드 ==========
-    
-    def get_random_subscription(self) -> Optional[Dict]:
-        """
-        랜덤 구독 상품 1개 조회
-
-        Returns:
-            구독 정보 dict {"subscription_id": "subs_1", "name": "베이직", "price": 9900, ...}
-        """
-        with self.get_connection() as conn:
-            if self.db_type == "mysql":
-                cursor = conn.cursor(dictionary=True)
-                random_func = "RAND()"
-                table_name = "subscriptions"
-            else:  # sqlite
-                cursor = conn.cursor()
-                random_func = "RANDOM()"
-                table_name = "subscription_plans"
-
-            query = f"""
-                SELECT subscription_id, subscription_type as name, price
-                FROM {table_name}
-                ORDER BY {random_func}
-                LIMIT 1
-            """
-            cursor.execute(query)
-
-            if self.db_type == "mysql":
-                subscription = cursor.fetchone()
-            else:  # sqlite
-                row = cursor.fetchone()
-                subscription = dict(row) if row else None
-
-            cursor.close()
-
-            return subscription
+    # ========== 구독 관련 메서드 ========== (삭제됨: subscription_plans 테이블 삭제)
     
     
     # ========== 리소스 정리 ==========
