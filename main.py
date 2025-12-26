@@ -110,8 +110,6 @@ def run_batch_mode(
        - LogSink: 로그 출력 (MPS 제어 포함)
     """
     target_months = config["global"]["target_months"]
-    target_mps = config["global"]["target_mps"]
-    sleep_interval = 1.0 / target_mps if target_mps > 0 else 0
 
     # DAU 및 1인당 로그 발생 수
     dau = config["date_generator"]["dau"]
@@ -183,10 +181,6 @@ def run_batch_mode(
                     log_sink.write(log_event)
                     log_count += 1
 
-            # MPS 제어
-            if sleep_interval > 0:
-                time.sleep(sleep_interval)
-
             # 진행 상황 출력
             if log_count % 1000 == 0:
                 elapsed = time.time() - start_time
@@ -227,9 +221,6 @@ def run_streaming_mode(
        - LogContents: 로그 내용 생성
        - LogSink: 로그 출력 (MPS 제어 포함)
     """
-    target_mps = config["global"]["target_mps"]
-    sleep_interval = 1.0 / target_mps if target_mps > 0 else 0
-
     print(f"\n🌊 Streaming 모드")
     print(f"⚠️  종료하려면 Ctrl+C를 누르세요\n")
 
@@ -281,10 +272,6 @@ def run_streaming_mode(
                 else:
                     log_sink.write(log_event)
                     log_count += 1
-
-            # MPS 제어
-            if sleep_interval > 0:
-                time.sleep(sleep_interval)
 
             # 진행 상황 출력
             if log_count % 100 == 0:
