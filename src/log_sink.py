@@ -41,6 +41,10 @@ class LogSink:
         # LogSink 전용 설정
         sink_config = config.get("log_sink", {})
 
+        # Kinesis 배치 전송 설정
+        self.batch_size = sink_config.get("batch_size", 500)
+        self.batch_timeout_ms = sink_config.get("batch_timeout_ms", 1000)
+
         self.sink_type = sink_config.get("sink_type", "local")  # local, s3, kinesis
 
         # 로컬 저장 설정
@@ -56,6 +60,11 @@ class LogSink:
         self.kinesis_stream_name = sink_config.get("kinesis_stream_name", "user-logs-stream")
         self.kinesis_region = sink_config.get("kinesis_region", "ap-northeast-2")
         self.aws_profile = sink_config.get("aws_profile", None)  # AWS CLI Profile
+
+        # Kinesis 재시도 설정
+        self.max_retries = sink_config.get("max_retries", 3)
+        self.initial_backoff_ms = sink_config.get("initial_backoff_ms", 100)
+        self.max_backoff_ms = sink_config.get("max_backoff_ms", 5000)
 
         # Kinesis client 초기화 (kinesis 모드일 때만)
         self.kinesis_client = None
@@ -78,6 +87,10 @@ class LogSink:
         self.next_hour_key: Optional[str] = None
         self.next_hour_buffer: List[Dict[str, Any]] = []
 
+        # Kinesis 배치 전송용 버퍼 (streaming-batch 모드 전용)
+        self.kinesis_batch_buffer: List[Dict[str, Any]] = []
+        self.last_batch_send_time = time.time()
+
         print(f"✅ LogSink 초기화 완료")
         print(f"   Mode: {self.mode}")
         print(f"   Sink Type: {self.sink_type}")
@@ -91,6 +104,9 @@ class LogSink:
         elif self.sink_type == "kinesis":
             print(f"   Kinesis Stream: {self.kinesis_stream_name}")
             print(f"   Kinesis Region: {self.kinesis_region}")
+            if self.mode == "streaming-batch":
+                print(f"   Batch Size: {self.batch_size}")
+                print(f"   Batch Timeout: {self.batch_timeout_ms}ms")
 
 
     def write(self, log_event: Dict[str, Any]) -> None:
@@ -103,15 +119,17 @@ class LogSink:
         if log_event is None:
             return
 
-        if self.mode == "streaming":
-            self.streaming_write(log_event)
+        if self.mode == "streaming-single":
+            self.streaming_single_write(log_event)
+        elif self.mode == "streaming-batch":
+            self.streaming_batch_write(log_event)
         else:  # batch
             self.batch_write(log_event)
 
 
-    def streaming_write(self, log_event: Dict[str, Any]) -> None:
+    def streaming_single_write(self, log_event: Dict[str, Any]) -> None:
         """
-        Streaming 모드: Kinesis로 즉시 전송 (버퍼링 없음)
+        Streaming Single 모드: Kinesis로 즉시 단일 전송 (put_record)
 
         지원: Kinesis만
         미지원: Local, S3
@@ -120,10 +138,39 @@ class LogSink:
             log_event: 로그 딕셔너리
         """
         if self.sink_type == "kinesis":
-            self._write_to_kinesis(log_event)
+            self._write_to_kinesis_single(log_event)
         else:
             print(f"❌ Streaming 모드는 Kinesis만 지원합니다. (현재 sink_type: {self.sink_type})")
             return
+
+        # MPS 제어
+        if self.interval > 0:
+            time.sleep(self.interval)
+
+    def streaming_batch_write(self, log_event: Dict[str, Any]) -> None:
+        """
+        Streaming Batch 모드: Kinesis로 배치 전송 (put_records)
+
+        지원: Kinesis만
+        미지원: Local, S3
+
+        Args:
+            log_event: 로그 딕셔너리
+        """
+        if self.sink_type != "kinesis":
+            print(f"❌ Streaming 모드는 Kinesis만 지원합니다. (현재 sink_type: {self.sink_type})")
+            return
+
+        # 버퍼에 추가
+        self.kinesis_batch_buffer.append(log_event)
+
+        # 배치 전송 조건 체크
+        current_time = time.time()
+        buffer_full = len(self.kinesis_batch_buffer) >= self.batch_size
+        timeout_reached = (current_time - self.last_batch_send_time) * 1000 >= self.batch_timeout_ms
+
+        if buffer_full or timeout_reached:
+            self._flush_kinesis_batch()
 
         # MPS 제어
         if self.interval > 0:
@@ -292,9 +339,9 @@ class LogSink:
         # s3_client.upload_file(local_file, bucket, key)
 
 
-    def _write_to_kinesis(self, log_event: Dict[str, Any]) -> None:
+    def _write_to_kinesis_single(self, log_event: Dict[str, Any]) -> None:
         """
-        Kinesis Data Streams로 전송
+        Kinesis Data Streams로 단일 전송 (put_record)
 
         Args:
             log_event: 로그 딕셔너리
@@ -318,16 +365,83 @@ class LogSink:
             )
 
             # 성공 로그 (선택적)
-            print(f"✅ Kinesis 전송 성공: ShardId={response['ShardId']}, SequenceNumber={response['SequenceNumber']}")
+            print(f"✅ Kinesis 단일 전송 성공: ShardId={response['ShardId']}, SequenceNumber={response['SequenceNumber']}")
 
         except ClientError as e:
             print(f"❌ Kinesis 전송 실패: {e}")
         except Exception as e:
             print(f"❌ 예상치 못한 오류: {e}")
 
+    def _flush_kinesis_batch(self) -> None:
+        """
+        Kinesis 배치 버퍼를 비우고 put_records로 전송
+        """
+        if not self.kinesis_batch_buffer:
+            return
+
+        if self.kinesis_client is None:
+            print("❌ Kinesis client가 초기화되지 않았습니다.")
+            return
+
+        try:
+            # put_records 요청 준비
+            records = []
+            for log_event in self.kinesis_batch_buffer:
+                partition_key = str(log_event.get("user_id", "default"))
+                data = json.dumps(log_event, ensure_ascii=False).encode('utf-8')
+
+                records.append({
+                    'Data': data,
+                    'PartitionKey': partition_key
+                })
+
+            # Kinesis로 배치 전송
+            response = self.kinesis_client.put_records(
+                StreamName=self.kinesis_stream_name,
+                Records=records
+            )
+
+            # 결과 확인
+            failed_count = response.get('FailedRecordCount', 0)
+            success_count = len(records) - failed_count
+
+            print(f"✅ Kinesis 배치 전송: {success_count}/{len(records)}개 성공", end="")
+            if failed_count > 0:
+                print(f" ({failed_count}개 실패)", end="")
+            print()
+
+            # 실패한 레코드 재시도 (선택적)
+            if failed_count > 0:
+                failed_records = []
+                for i, record_response in enumerate(response['Records']):
+                    if 'ErrorCode' in record_response:
+                        failed_records.append(self.kinesis_batch_buffer[i])
+
+                if failed_records:
+                    print(f"⚠️  {len(failed_records)}개 레코드 재시도 필요")
+                    # TODO: 재시도 로직 구현 (옵션)
+
+            # 버퍼 초기화
+            self.kinesis_batch_buffer.clear()
+            self.last_batch_send_time = time.time()
+
+        except ClientError as e:
+            print(f"❌ Kinesis 배치 전송 실패: {e}")
+            # 버퍼 유지 (재시도 가능)
+        except Exception as e:
+            print(f"❌ 예상치 못한 오류: {e}")
+            # 버퍼 초기화 (복구 불가능한 오류)
+            self.kinesis_batch_buffer.clear()
+            self.last_batch_send_time = time.time()
+
 
     def close(self) -> None:
         """리소스 정리 및 마지막 버퍼 flush"""
+        # Kinesis 배치 버퍼 flush (streaming-batch 모드)
+        if self.mode == "streaming-batch" and self.kinesis_batch_buffer:
+            print(f"🔄 마지막 Kinesis 배치 전송 중... ({len(self.kinesis_batch_buffer)}개)")
+            self._flush_kinesis_batch()
+
         # 현재 시간대 버퍼 flush
         if self.current_hour_key is not None and self.current_hour_buffer:
             self._flush_buffer_to_json(self.current_hour_key, self.current_hour_buffer)

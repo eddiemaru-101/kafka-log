@@ -65,7 +65,7 @@ def main():
             log_sink=log_sink
         )
 
-    elif generation_mode == "streaming":
+    elif generation_mode in ["streaming-single", "streaming-batch"]:
         # ========== 5. Streaming 모드 실행 ==========
         run_streaming_mode(
             config=config,

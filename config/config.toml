@@ -3,7 +3,11 @@
 # ============================================================
 [global]
 timezone = "Asia/Seoul"
-generation_mode = "streaming"  # "batch" or "streaming"
+# generation_mode 옵션:
+#   - "batch": 로컬/S3 파일 저장 (시간별 배치)
+#   - "streaming-single": Kinesis 단일 메시지 전송 (put_record)
+#   - "streaming-batch": Kinesis 배치 메시지 전송 (put_records)
+generation_mode = "streaming-batch"
 target_months = ["2025-09", "2025-10", "2025-11"] # 3달치생성시 ["2025-09", "2025-10", "2025-11"]
 target_mps = 0  # 0이면 제한 없음
 
@@ -24,7 +28,7 @@ sqlite_db_path = "../db/ott_test.db"
 # ============================================================
 [date_generator]
 dau = 1000
-logs_per_user_per_day = 500000
+logs_per_user_per_day = 100
 
 # 요일별 로그 발생 비율 (합계 = 1.0)
 [date_generator.day_of_week_ratio]
@@ -329,6 +333,15 @@ s3_bucket = "sesac-l1"
 s3_prefix = "raw-userlog"
 
 # Kinesis Data Streams 설정 (sink_type = "kinesis"일 때 사용)
-kinesis_stream_name = "user-logs-stream-single"
+kinesis_stream_name = "user-logs-stream" #user-logs-stream-single
 kinesis_region = "ap-northeast-2"
 aws_profile = "team"  # AWS CLI Profile 이름 (예: "default", "my-profile"). 비워두면 환경 변수나 IAM Role 사용
+
+# Kinesis 배치 전송 설정 (generation_mode = "streaming-batch"일 때 사용)
+batch_size = 501  # 배치당 최대 레코드 수 (Kinesis API 제한: 최대 500개)
+batch_timeout_ms = 10000  # 배치 대기 시간 (밀리초). 이 시간 내에 batch_size에 도달하지 않아도 전송
+
+# Kinesis 재시도 설정 (generation_mode = "streaming-single"일 때 사용)
+max_retries = 3  # 최대 재시도 횟수
+initial_backoff_ms = 100  # 초기 백오프 대기 시간 (밀리초)
+max_backoff_ms = 5000  # 최대 백오프 대기 시간 (밀리초)
